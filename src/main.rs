@@ -211,7 +211,8 @@ fn apply_tectonic_deformation(mesh: &mut Mesh, plates: &[Plate], noise: &impl No
             h += detail_noise * 0.35;
 
             let final_h = h.max(-0.9);
-            let visual_h = if final_h < 0.0 { final_h } else { final_h };
+            let visual_h = final_h;
+            // let visual_h = if final_h < 0.0 { 0.0 } else { final_h };
             *pos = (v * (RADIUS + visual_h)).to_array();
 
             let color = match final_h {
@@ -237,12 +238,12 @@ fn rotate_globe(
     mouse_button: Res<ButtonInput<MouseButton>>,
     accumulated_mouse: Res<AccumulatedMouseMotion>,
 ) {
-    if mouse_button.pressed(MouseButton::Left) {
-        if let Ok(mut transform) = query.single_mut() {
-            let delta = accumulated_mouse.delta;
-            let sensitivity = 0.005;
-            transform.rotate_y(-delta.x * sensitivity);
-            transform.rotate_local_x(-delta.y * sensitivity);
-        }
+    if mouse_button.pressed(MouseButton::Left)
+        && let Ok(mut transform) = query.single_mut()
+    {
+        let delta = accumulated_mouse.delta;
+        let sensitivity = 0.005;
+        transform.rotate_y(-delta.x * sensitivity);
+        transform.rotate_local_x(-delta.y * sensitivity);
     }
 }
