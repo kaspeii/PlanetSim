@@ -1,14 +1,18 @@
-use bevy::{input::mouse::AccumulatedMouseMotion, prelude::*, render::mesh::VertexAttributeValues};
+use bevy::{input::mouse::AccumulatedMouseMotion, prelude::*, render::{mesh::{VertexAttributeValues, PrimitiveTopology}, render_asset::RenderAssetUsages}};
 use noise::{Fbm, NoiseFn, Perlin};
 use rand::Rng;
 
-const RADIUS: f32 = 3.0;
-const SUBDIVISIONS: u32 = 75; // 80 - это максимум для стандартного билдера Bevy
+const RADIUS: f32 = 30.0;
 const NUM_PLATES: usize = 15;
 const PERC_OF_CONTINENTAL_PLATES: f64 = 0.4;
+const CHUNKS_PER_FACE: u32 = 4; // Разделим каждую грань куба на 4x4 чанка (всего 96 чанков)
+const CHUNK_RESOLUTION: u32 = 32; // Разрешение одного чанка (32x32 вершины)
 
 #[derive(Component)]
 struct Globe;
+
+#[derive(Component)]
+struct GlobeChunk;
 
 #[derive(PartialEq, Clone, Copy)]
 enum PlateType {
@@ -20,6 +24,26 @@ struct Plate {
     center: Vec3,
     plate_type: PlateType,
     drift_dir: Vec3,
+}
+
+// Направления граней куба
+enum Face { Front, Back, Left, Right, Up, Down }
+
+impl Face {
+    fn all() -> [Self; 6] {
+        [Self::Front, Self::Back, Self::Left, Self::Right, Self::Up, Self::Down]
+    }
+
+    fn get_vectors(&self) -> (Vec3, Vec3, Vec3) {
+        match self {
+            Face::Front => (Vec3::Z, Vec3::X, Vec3::Y),
+            Face::Back  => (-Vec3::Z, -Vec3::X, Vec3::Y),
+            Face::Left  => (-Vec3::X, Vec3::Z, Vec3::Y),
+            Face::Right => (Vec3::X, -Vec3::Z, Vec3::Y),
+            Face::Up    => (Vec3::Y, Vec3::X, -Vec3::Z),
+            Face::Down  => (-Vec3::Y, Vec3::X, Vec3::Z),
+        }
+    }
 }
 
 fn main() {
@@ -35,9 +59,6 @@ fn setup_globe(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    // Используем 75, чтобы не паниковать по лимиту вершин
-    let mut mesh = Sphere::new(RADIUS).mesh().ico(SUBDIVISIONS).unwrap();
-
     let mut rng = rand::rng();
 
     let plates = generate_plates(&mut rng);
@@ -51,13 +72,37 @@ fn setup_globe(
         ..default()
     });
 
-    apply_tectonic_deformation(&mut mesh, &plates, &perlin);
-
     commands.spawn((
-        Mesh3d(meshes.add(mesh)),
-        MeshMaterial3d(material_handle.clone()),
-        Globe,
-    ));
+        Globe, 
+        Transform::IDENTITY, 
+        Visibility::default(),
+        InheritedVisibility::default(),
+    ))
+    .with_children(|parent| {
+        // 2. Проходим по всем 6 граням куба
+        for face in Face::all() {
+            // 3. Каждую грань делим на сетку чанков
+            for y in 0..CHUNKS_PER_FACE {
+                for x in 0..CHUNKS_PER_FACE {
+                    
+                    // Создаем меш для конкретного чанка
+                    let mut mesh = create_chunk_mesh(
+                        &face, 
+                        x, y, 
+                        CHUNKS_PER_FACE, 
+                        CHUNK_RESOLUTION
+                    );
+                    
+                    apply_tectonic_deformation(&mut mesh, &plates, &perlin);
+                    parent.spawn((
+                        GlobeChunk,
+                        Mesh3d(meshes.add(mesh)),
+                        MeshMaterial3d(material_handle.clone()),
+                    ));
+                }
+            }
+        }
+    });
 
     commands.spawn((
         DirectionalLight {
@@ -65,9 +110,9 @@ fn setup_globe(
             shadows_enabled: true,
             ..default()
         },
-        Transform::from_xyz(10.0, 10.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(RADIUS * 3.0, RADIUS * 3.0, RADIUS * 3.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
-    commands.spawn((Camera3d::default(), Transform::from_xyz(0.0, 0.0, 10.0)));
+    commands.spawn((Camera3d::default(), Transform::from_xyz(0.0, 0.0, RADIUS * 3.0)));
 }
 
 fn generate_plates(rng: &mut impl Rng) -> Vec<Plate> {
@@ -95,6 +140,37 @@ fn generate_plates(rng: &mut impl Rng) -> Vec<Plate> {
         });
     }
     plates
+}
+
+fn create_chunk_mesh(face: &Face, chunk_x: u32, chunk_y: u32, chunks_per_face: u32, res: u32) -> Mesh {
+    let mut positions = Vec::new();
+    let mut indices = Vec::new();
+    let (origin, right, up) = face.get_vectors();
+
+    for y in 0..=res {
+        for x in 0..=res {
+            // Вычисляем локальные координаты внутри чанка (0.0..1.0)
+            let local_x = (x as f32 / res as f32 + chunk_x as f32) / chunks_per_face as f32;
+            let local_y = (y as f32 / res as f32 + chunk_y as f32) / chunks_per_face as f32;
+
+            // Точка на грани куба
+            let p = origin + (local_x * 2.0 - 1.0) * right + (local_y * 2.0 - 1.0) * up;
+            
+            // Проекция на сферу
+            positions.push(p.normalize() * RADIUS);
+
+            // Индексы для треугольников (стандартная сетка)
+            if x < res && y < res {
+                let i = y * (res + 1) + x;
+                indices.extend_from_slice(&[i, i + 1, i + res + 1]);
+                indices.extend_from_slice(&[i + 1, i + res + 2, i + res + 1]);
+            }
+        }
+    }
+
+    Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+        .with_inserted_indices(bevy::render::mesh::Indices::U32(indices))
 }
 
 fn apply_tectonic_deformation(mesh: &mut Mesh, plates: &[Plate], noise: &impl NoiseFn<f64, 3>) {
@@ -238,7 +314,7 @@ fn apply_tectonic_deformation(mesh: &mut Mesh, plates: &[Plate], noise: &impl No
 
         mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, new_colors);
     }
-    mesh.compute_normals();
+    mesh.compute_smooth_normals();
 }
 
 fn rotate_globe(
