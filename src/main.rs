@@ -39,7 +39,39 @@ fn setup_globe(
     let mut mesh = Sphere::new(RADIUS).mesh().ico(SUBDIVISIONS).unwrap();
 
     let mut rng = rand::rng();
-    let mut plates = Vec::new();
+
+    let plates = generate_plates(&mut rng);
+
+    let seed = rng.random_range(0..=u32::MAX);
+    let perlin = Fbm::<Perlin>::new(seed);
+
+
+    let material_handle = materials.add(StandardMaterial {
+        base_color: Color::WHITE,
+        ..default()
+    });
+
+    apply_tectonic_deformation(&mut mesh, &plates, &perlin);
+
+    commands.spawn((
+        Mesh3d(meshes.add(mesh)),
+        MeshMaterial3d(material_handle.clone()),
+        Globe,
+    ));
+
+    commands.spawn((
+        DirectionalLight {
+            illuminance: 12000.0,
+            shadows_enabled: true,
+            ..default()
+        },
+        Transform::from_xyz(10.0, 10.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
+    ));
+    commands.spawn((Camera3d::default(), Transform::from_xyz(0.0, 0.0, 10.0)));
+}
+
+fn generate_plates(rng: &mut impl Rng) -> Vec<Plate> {
+    let mut plates = Vec::with_capacity(NUM_PLATES as usize);
     for _ in 0..NUM_PLATES {
         let plate_type = if rng.random_bool(PERC_OF_CONTINENTAL_PLATES) {
             PlateType::Continental
@@ -62,31 +94,7 @@ fn setup_globe(
             .normalize(),
         });
     }
-
-    let seed = rng.random_range(0..=u32::MAX);
-    let perlin = Fbm::<Perlin>::new(seed);
-
-    apply_tectonic_deformation(&mut mesh, &plates, &perlin);
-
-    commands.spawn((
-        Mesh3d(meshes.add(mesh)),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::WHITE,
-            perceptual_roughness: 0.7,
-            ..default()
-        })),
-        Globe,
-    ));
-
-    commands.spawn((
-        DirectionalLight {
-            illuminance: 12000.0,
-            shadows_enabled: true,
-            ..default()
-        },
-        Transform::from_xyz(10.0, 10.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
-    ));
-    commands.spawn((Camera3d::default(), Transform::from_xyz(0.0, 0.0, 10.0)));
+    plates
 }
 
 fn apply_tectonic_deformation(mesh: &mut Mesh, plates: &[Plate], noise: &impl NoiseFn<f64, 3>) {
