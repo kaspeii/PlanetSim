@@ -1,0 +1,15 @@
+[package]
+name = "SocSim"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bevy = { version = "0.16", features = ["dynamic_linking"] }
+noise = "0.9"
+rand = "0.9.1"
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.dev]
+opt-level = 0
