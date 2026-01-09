@@ -45,7 +45,6 @@ fn setup_globe(
     let seed = rng.random_range(0..=u32::MAX);
     let perlin = Fbm::<Perlin>::new(seed);
 
-
     let material_handle = materials.add(StandardMaterial {
         base_color: Color::WHITE,
         ..default()
@@ -71,7 +70,7 @@ fn setup_globe(
 }
 
 fn generate_plates(rng: &mut impl Rng) -> Vec<Plate> {
-    let mut plates = Vec::with_capacity(NUM_PLATES as usize);
+    let mut plates = Vec::with_capacity(NUM_PLATES);
     for _ in 0..NUM_PLATES {
         let plate_type = if rng.random_bool(PERC_OF_CONTINENTAL_PLATES) {
             PlateType::Continental
