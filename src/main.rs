@@ -1,11 +1,17 @@
-use bevy::{input::mouse::AccumulatedMouseMotion, prelude::*, render::mesh::VertexAttributeValues};
+use bevy::{input::mouse::AccumulatedMouseMotion, prelude::*, mesh::VertexAttributeValues};
 use noise::{Fbm, NoiseFn, Perlin};
-use rand::Rng;
+use rand::{Rng, SeedableRng};
+use rand_chacha::ChaCha8Rng;
 
 const RADIUS: f32 = 3.0;
 const SUBDIVISIONS: u32 = 75; // 80 - это максимум для стандартного билдера Bevy
 const NUM_PLATES: usize = 15;
 const PERC_OF_CONTINENTAL_PLATES: f64 = 0.4;
+
+#[derive(Resource)]
+struct WorldSettings {
+    seed: Option<u32>,
+}
 
 #[derive(Component)]
 struct Globe;
@@ -25,6 +31,7 @@ struct Plate {
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
+        .insert_resource(WorldSettings { seed: Some(144) }) 
         .add_systems(Startup, setup_globe)
         .add_systems(Update, rotate_globe)
         .run();
@@ -32,17 +39,22 @@ fn main() {
 
 fn setup_globe(
     mut commands: Commands,
+    settings: Res<WorldSettings>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     // Используем 75, чтобы не паниковать по лимиту вершин
     let mut mesh = Sphere::new(RADIUS).mesh().ico(SUBDIVISIONS).unwrap();
 
-    let mut rng = rand::rng();
+    let seed = match settings.seed {
+            Some(s) => s,
+            None => rand::rng().random_range(0..=u32::MAX),
+    };
+
+    let mut rng = ChaCha8Rng::seed_from_u64(seed as u64);
 
     let plates = generate_plates(&mut rng);
 
-    let seed = rng.random_range(0..=u32::MAX);
     let perlin = Fbm::<Perlin>::new(seed);
 
     let material_handle = materials.add(StandardMaterial {
@@ -71,214 +83,196 @@ fn setup_globe(
 
 fn generate_plates(rng: &mut impl Rng) -> Vec<Plate> {
     let mut plates = Vec::with_capacity(NUM_PLATES);
-    for _ in 0..NUM_PLATES {
-        let plate_type = if rng.random_bool(PERC_OF_CONTINENTAL_PLATES) {
-            PlateType::Continental
-        } else {
-            PlateType::Oceanic
-        };
-        plates.push(Plate {
-            center: Vec3::new(
-                rng.random_range(-1.0..1.0),
-                rng.random_range(-1.0..1.0),
-                rng.random_range(-1.0..1.0),
-            )
-            .normalize(),
-            plate_type,
-            drift_dir: Vec3::new(
-                rng.random_range(-1.0..1.0),
-                rng.random_range(-1.0..1.0),
-                rng.random_range(-1.0..1.0),
-            )
-            .normalize(),
-        });
+    let min_distance = 0.4;
+    
+
+    while plates.len() < NUM_PLATES as usize {
+        let new_center = Vec3::new(
+            rng.random_range(-1.0..1.0),
+            rng.random_range(-1.0..1.0),
+            rng.random_range(-1.0..1.0),
+        ).normalize();
+
+        // Проверяем, нет ли рядом соседа
+        let is_too_close = plates.iter().any(|p: &Plate| p.center.distance(new_center) < min_distance);
+
+        if !is_too_close {
+            plates.push(Plate {
+                center: new_center,
+                plate_type: if rng.random_bool(PERC_OF_CONTINENTAL_PLATES) { PlateType::Continental } else { PlateType::Oceanic },
+                drift_dir: Vec3::new(
+                    rng.random_range(-1.0..1.0),
+                    rng.random_range(-1.0..1.0),
+                    rng.random_range(-1.0..1.0),
+                )
+                .normalize(),
+            });
+        }
     }
     plates
 }
 
 fn apply_tectonic_deformation(mesh: &mut Mesh, plates: &[Plate], noise: &impl NoiseFn<f64, 3>) {
+    let k = 25.0; 
+    let world_radius = RADIUS;
+
+    // Извлекаем позиции для изменения и готовим вектор для цветов
     if let Some(VertexAttributeValues::Float32x3(positions)) =
         mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION)
     {
         let mut new_colors = Vec::with_capacity(positions.len());
 
         for pos in positions.iter_mut() {
-            let v = Vec3::from(*pos).normalize();
+            let v = Vec3::from(*pos);
+            let v_norm = v.normalize();
 
-            // --- 1. ИСКАЖЕНИЕ ГРАНИЦ (Domain Warping) ---
-            // Мы добавляем шум к позиции ПЕРЕД поиском ближайшей плиты.
-            // Это сделает границы "рваными" и скругленными.
-            let warp_strength = 0.5;
-            let warp_freq = 1.0;
-            let warp_noise = Vec3::new(
-                noise.get([v.x as f64 * warp_freq, v.y as f64 * warp_freq, v.z as f64 * warp_freq]) as f32,
-                noise.get([v.y as f64 * warp_freq, v.z as f64 * warp_freq, v.x as f64 * warp_freq]) as f32,
-                noise.get([v.z as f64 * warp_freq, v.x as f64 * warp_freq, v.y as f64 * warp_freq]) as f32,
-            ) * warp_strength;
+            // --- 1. ВЫЧИСЛЯЕМ ВЕСА ПЛИТ (Softmax) ---
+            let mut weights = Vec::with_capacity(plates.len());
+            let mut sum_weight = 0.0;
+            for plate in plates {
+                let dist = v_norm.dot(plate.center); 
+                let w = (k * dist).exp();
+                weights.push(w);
+                sum_weight += w;
+            }
+            for w in weights.iter_mut() { *w /= sum_weight; }
 
-            let warped_v = (v + warp_noise).normalize();
+            // --- 2. БАЗОВАЯ ВЫСОТА ---
+            let mut h_base = 0.0;
+            for (i, w) in weights.iter().enumerate() {
+                let plate_h = if plates[i].plate_type == PlateType::Continental { 0.08 } else { -0.35 };
+                h_base += w * plate_h;
+            }
 
-            // --- 2. ПОИСК БЛИЖАЙШИХ ПЛИТ (по искаженным координатам) ---
-            let mut dist_1 = f32::MAX;
-            let mut dist_2 = f32::MAX;
-            let mut p1_idx = 0;
-            let mut p2_idx = 0;
+// --- 3. ТЕКТОНИЧЕСКИЙ СТРЕСС (Матрица взаимодействий) ---
+            let mut stress = 0.0;
+            for i in 0..plates.len() {
+                if weights[i] < 0.01 { continue; }
+                for j in (i + 1)..plates.len() {
+                    if weights[j] < 0.01 { continue; }
+                    
+                    // Сила взаимодействия между парой плит в данной точке
+                    let w_pair = weights[i] * weights[j] * 4.0; 
+                    let dot_drift = plates[i].drift_dir.dot(plates[j].drift_dir);
+                    
+                    match (plates[i].plate_type, plates[j].plate_type) {
+                        // 1. КОНТИНЕНТ - КОНТИНЕНТ (Орогенез / Рифт)
+                        (PlateType::Continental, PlateType::Continental) => {
+                            if dot_drift < -0.1 {
+                                stress += w_pair * 0.55; // Мощные горы (Гималаи)
+                            } else if dot_drift > 0.1 {
+                                stress -= w_pair * 0.35; // Рифтовая долина (Африканский разлом)
+                            }
+                        }
 
-            for (i, plate) in plates.iter().enumerate() {
-                let d = warped_v.distance(plate.center);
-                if d < dist_1 {
-                    dist_2 = dist_1;
-                    p2_idx = p1_idx;
-                    dist_1 = d;
-                    p1_idx = i;
-                } else if d < dist_2 {
-                    dist_2 = d;
-                    p2_idx = i;
+                        // 2. КОНТИНЕНТ - ОКЕАН (Субдукция)
+                        (PlateType::Continental, PlateType::Oceanic) | (PlateType::Oceanic, PlateType::Continental) => {
+                            if dot_drift < -0.1 {
+                                // Определяем, кто есть кто
+                                let (w_cont, w_ocean) = if plates[i].plate_type == PlateType::Continental {
+                                    (weights[i], weights[j])
+                                } else {
+                                    (weights[j], weights[i])
+                                };
+
+                                // --- МАГИЯ ПЛЯЖА ---
+                                // Разница весов: на границе diff = 0. 
+                                // На континенте diff > 0, в океане diff < 0.
+                                let diff = w_cont - w_ocean;
+
+                                // "Профиль субдукции": 
+                                // Умножаем w_pair (который стягивает всё к границе) 
+                                // на diff (который в центре равен 0 и растет в стороны).
+                                // Это создает "S-образную" кривую: пик вверх -> ноль -> пик вниз.
+                                let subduction_profile = diff.powi(5) * w_pair * 2.0;
+
+                                // Увеличиваем множители, так как перемножение весов уменьшает итоговое число
+                                stress += subduction_profile * 0.8; 
+                            } else {
+                                // Пассивный разрыв
+                                stress -= w_pair * 0.1;
+                            }
+                        }
+
+                        // 3. ОКЕАН - ОКЕАН (Дуги / Срединные хребты)
+                        (PlateType::Oceanic, PlateType::Oceanic) => {
+                            if dot_drift < -0.1 {
+                                // Столкновение океанов — островные дуги (Япония, Марианские о-ва)
+                                stress += w_pair * 0.6; 
+                            } else if dot_drift > 0.1 {
+                                // Срединно-океанический хребет — магма поднимает дно
+                                stress += w_pair * 0.2; 
+                            }
+                        }
+                    }
                 }
             }
 
-            let p1 = &plates[p1_idx];
-            let p2 = &plates[p2_idx];
-            let boundary_dist = dist_2 - dist_1;
-            let edge_threshold = 0.45;
-            let collision_threshold = -0.2; // Навстречу (dot < -0.2)
-            let separation_threshold = 0.2;  // В разные стороны (dot > 0.2)
+            // --- 4. НАСТРОЙКА ШУМОВ ---
+            
+            // А. Общий шум поверхности (низкая частота, мягкий)
+            let surf_freq = 1.5;
+            let surface_noise = noise.get([
+                v.x as f64 * surf_freq, 
+                v.y as f64 * surf_freq, 
+                v.z as f64 * surf_freq
+            ]) as f32;
 
-            // --- 3. БАЗОВАЯ ВЫСОТА И ПЛЯЖИ ---
-            let mut h = if p1.plate_type == PlateType::Continental {
-                0.12
+            // Б. Горный шум (высокая частота, "гребневый")
+            let mount_freq = 0.5;
+            let raw_mount_noise = noise.get([
+                v.x as f64 * mount_freq, 
+                v.y as f64 * mount_freq, 
+                v.z as f64 * mount_freq
+            ]) as f32;
+            
+            // Делаем шум чисто положительным и "острым" (Ridged Noise)
+            // 1.0 - abs(n) создает острые пики вместо плавных холмов
+            let mountain_noise = raw_mount_noise.abs();
+
+            // --- 5. ФИНАЛЬНАЯ ВЫСОТА ---
+            
+            // Общая кривизна поверхности (плато, холмы)
+            let h_surface = h_base + surface_noise * 0.4;
+            
+            // Тектонические горы: растут ТОЛЬКО вверх там, где есть stress
+            // stress.max(0.0) гарантирует, что впадины не будут "шуметь" как горы
+            let h_mountains = stress.max(0.0) * (0.0 + mountain_noise * 2.5);
+            
+            // Впадины (рифты/желоба): оставляем их более гладкими
+            let h_trenches = stress.min(0.0) * mountain_noise * 5.5;
+
+            let final_height = h_surface + h_mountains + h_trenches;
+
+            // Обновляем позицию вершины
+            *pos = (v_norm * (world_radius + final_height)).to_array();
+
+
+            // --- 5. РАСКРАСКА (Biomes) ---
+            let color = if final_height < -0.25 {
+                LinearRgba::new(0.02, 0.05, 0.2, 1.0) // Глубокий океан
+            } else if final_height < -0.05 {
+                LinearRgba::new(0.05, 0.2, 0.5, 1.0) // Мелководье
+            } else if final_height < 0.02 {
+                LinearRgba::new(0.8, 0.7, 0.4, 1.0) // Песок / Пляж
+            } else if final_height < 0.15 {
+                LinearRgba::new(0.1, 0.4, 0.1, 1.0) // Равнина (Трава)
+            } else if final_height < 0.35 {
+                LinearRgba::new(0.3, 0.2, 0.15, 1.0) // Предгорья (Земля/Камень)
+            } else if final_height < 0.5 {
+                LinearRgba::new(0.4, 0.4, 0.4, 1.0) // Высокие скалы
             } else {
-                -0.35
+                LinearRgba::new(0.9, 0.9, 1.0, 1.0) // Снежные пики
             };
 
-            // // Если мы на континенте, а рядом океан — создаем склон к пляжу
-            // if p1.plate_type == PlateType::Continental && p2.plate_type == PlateType::Oceanic {
-            //     let beach_factor = (boundary_dist / 0.2).clamp(0.0, 1.0);
-            //     // Плавно опускаем высоту от 0.12 до -0.05 при приближении к границе
-            //     h = h * beach_factor - (1.0 - beach_factor) * 0.05;
-            // }
-            // // Если мы в океане, а рядом континент — создаем мелководье (шельф)
-            // else if p1.plate_type == PlateType::Oceanic && p2.plate_type == PlateType::Continental
-            // {
-            //     let shelf_factor = (boundary_dist / 0.25).clamp(0.0, 1.0);
-            //     h = h * shelf_factor - (1.0 - shelf_factor) * 0.1;
-            // } else if p1.plate_type == PlateType::Continental
-            //     && p2.plate_type == PlateType::Continental
-            // {
-            //     let mountain_factor = (boundary_dist / 0.10).clamp(0.0, 1.0);
-            //     h = h * mountain_factor + (1.0 - mountain_factor) * 0.3;
-            // } else if p1.plate_type == PlateType::Oceanic && p2.plate_type == PlateType::Oceanic {
-            //     let mountain_factor = (boundary_dist / 0.25).clamp(0.0, 1.0);
-            //     h = h * mountain_factor + (1.0 - mountain_factor) * 0.01;
-            // }
-
-            // --- 4. ТЕКТОНИКА (ГОРЫ И ВПАДИНЫ) ---
-            if boundary_dist < edge_threshold {
-                    // f = 1.0 на самой границе, 0.0 на краю зоны влияния
-                let f = (1.0 - boundary_dist / edge_threshold).clamp(0.0, 1.0);
-                
-                // Вектор относительного движения. 
-                // dot < 0 — плиты идут навстречу друг другу (сжатие)
-                // dot > 0 — плиты расходятся (растяжение)
-                let dot = p1.drift_dir.dot(p2.drift_dir);
-                
-                let mountain_noise = 0.7 + noise.get([v.x as f64 * 18.0, v.y as f64 * 18.0, v.z as f64 * 18.0]) as f32;
-
-                match (p1.plate_type, p2.plate_type) {
-                    // --- 1. КОНТИНЕНТ - КОНТИНЕНТ: СКЛАДЧАТОСТЬ (Гималаи) ---
-                    (PlateType::Continental, PlateType::Continental) => {
-                        if dot < collision_threshold {
-                            // Главный хребет на границе + боковые складки
-                            let main_ridge = f.powi(4) * 0.4;
-                            let folds = (f * std::f32::consts::PI * 2.5).cos().abs() * f * 0.25;
-                            h += (main_ridge + folds) * mountain_noise;
-                        } else if dot > separation_threshold {
-                            // Рифт (разлом): резкое падение вниз в центре
-                            h -= f.powi(2) * 0.3;
-                        }
-                    }
-
-                    // --- 2. КОНТИНЕНТ - ОКЕАН (p1 на суше): ГОРНАЯ ДУГА (Анды) ---
-                    (PlateType::Continental, PlateType::Oceanic) => {
-                        if dot < collision_threshold {
-                            // Зона субдукции:
-                            // 1. Пляж/Берег на самой границе (f=1.0) -> h стремится к 0
-                            // 2. Горы отодвинуты от берега (пик примерно на f=0.6..0.7)
-                            
-                            // Заставляем высоту на границе быть ровно 0.0 (уровень моря)
-                            let coast_constraint = 1.0 - f.powi(3); 
-                            h *= coast_constraint; 
-
-                            // Горная гряда, отодвинутая вглубь суши
-                            let mountain_peak = ((f - 0.2) * (std::f32::consts::PI / 0.8)).sin().max(0.0);
-                            h += mountain_peak.powi(2) * 0.3 * mountain_noise;
-                        } else {
-                            // Пассивный берег: просто плавный спуск к воде
-                            let shelf = f.powi(2);
-                            h = h * (1.0 - shelf) + shelf * (-0.05); // Спуск к мелководью
-                        }
-                    }
-
-                    // --- 3. ОКЕАН - КОНТИНЕНТ (p1 в воде): ЖЕЛОБ (Марианская впадина) ---
-                    (PlateType::Oceanic, PlateType::Continental) => {
-                        if dot < collision_threshold {
-                            // 1. На самой границе (f=1.0) — берег (0.0)
-                            // 2. Рядом с границей (f=0.9) — резкое падение в желоб
-                            let coast_constraint = 1.0 - f.powi(3);
-                            h *= coast_constraint;
-
-                            // Глубокая впадина (желоб) у самого берега
-                            let trench_shape = (f * std::f32::consts::PI).sin().powi(4);
-                            h -= trench_shape * 0.3;
-                        } else {
-                            // Пассивный шельф
-                            let shelf = f.powi(3);
-                            h = h * (1.0 - shelf) + shelf * (-0.15);
-                        }
-                    }
-
-                    // --- 4. ОКЕАН - ОКЕАН: ДУГА ИЛИ ХРЕБЕТ ---
-                    (PlateType::Oceanic, PlateType::Oceanic) => {
-                        if dot < collision_threshold {
-                            // Столкновение океанов: одна плита ныряет под другую.
-                            // Создает одну цепочку вулканических островов (Япония, Курилы)
-                            let island_arc = f.powi(3) * (f * std::f32::consts::PI).sin();
-                            h += island_arc * 0.4 * mountain_noise;
-                        } else if dot > separation_threshold {
-                            // Срединно-океанический хребет (Атлантика):
-                            // Плавный подъем дна к центру разлома
-                            let mid_ocean_ridge = f.powi(2) * 0.25;
-                            h += mid_ocean_ridge * mountain_noise;
-                        }
-                    }
-                }
-            }
-
-            // --- 5. ФИНАЛЬНЫЙ ШУМ И КЛЕМПЫ ---
-            let detail_noise =
-                noise.get([v.x as f64 * 4.0, v.y as f64 * 4.0, v.z as f64 * 4.0]) as f32;
-            h += detail_noise * 0.35;
-
-            let final_h = h.max(-0.9);
-            let visual_h = final_h;
-            // let visual_h = if final_h < 0.0 { 0.0 } else { final_h };
-            *pos = (v * (RADIUS + visual_h)).to_array();
-
-            let color = match final_h {
-                x if x <= -0.45 => Color::srgb(0.0, 0.03, 0.12), // Глубокие желоба
-                x if x <= -0.18 => Color::srgb(0.01, 0.1, 0.3),  // Океан
-                x if x < 0.0 => Color::srgb(0.05, 0.25, 0.5),    // Мелководье
-                x if x < 0.035 => Color::srgb(0.85, 0.75, 0.5),  // Пляж (Песок)
-                x if x < 0.18 => Color::srgb(0.2, 0.45, 0.15),   // Равнина (Зелень)
-                x if x < 0.4 => Color::srgb(0.4, 0.35, 0.3),     // Горы
-                x if x < 0.6 => Color::srgb(0.3, 0.25, 0.2),     // Высокие скалы
-                _ => Color::srgb(0.95, 0.95, 1.0),               // Снег
-            };
-            new_colors.push(color.to_linear().to_f32_array());
+            new_colors.push(color.to_f32_array());
         }
 
+        // Вставляем атрибут цвета в меш
         mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, new_colors);
     }
+    
+    // Пересчитываем нормали, чтобы освещение работало правильно на новом рельефе
     mesh.compute_normals();
 }
 
