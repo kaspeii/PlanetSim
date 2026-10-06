@@ -1,9 +1,13 @@
-use bevy::{input::mouse::AccumulatedMouseMotion, prelude::*, render::mesh::VertexAttributeValues};
+use bevy::{
+    input::mouse::AccumulatedMouseMotion,
+    prelude::*,
+    render::mesh::VertexAttributeValues,
+};
 use noise::{Fbm, NoiseFn, Perlin};
-use rand::Rng;
+use rand::RngExt;
 
 const RADIUS: f32 = 3.0;
-const SUBDIVISIONS: u32 = 75; // 80 - это максимум для стандартного билдера Bevy
+const SUBDIVISIONS: u32 = 75; // 80 — максимум для стандартного билдера Bevy
 const NUM_PLATES: usize = 15;
 const PERC_OF_CONTINENTAL_PLATES: f64 = 0.4;
 
@@ -35,10 +39,10 @@ fn setup_globe(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    // Используем 75, чтобы не паниковать по лимиту вершин
+    // Создаём икосаэдр с 75 подразделениями
     let mut mesh = Sphere::new(RADIUS).mesh().ico(SUBDIVISIONS).unwrap();
 
-    let mut rng = rand::rng();
+    let mut rng = rand::rng(); // В новых версиях rand можно использовать thread_rng()
 
     let plates = generate_plates(&mut rng);
 
@@ -61,15 +65,19 @@ fn setup_globe(
     commands.spawn((
         DirectionalLight {
             illuminance: 12000.0,
-            shadows_enabled: true,
+            shadow_maps_enabled: true,
             ..default()
         },
         Transform::from_xyz(10.0, 10.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
-    commands.spawn((Camera3d::default(), Transform::from_xyz(0.0, 0.0, 10.0)));
+
+    commands.spawn((
+        Camera3d::default(),
+        Transform::from_xyz(0.0, 0.0, 10.0),
+    ));
 }
 
-fn generate_plates(rng: &mut impl Rng) -> Vec<Plate> {
+fn generate_plates(rng: &mut impl RngExt) -> Vec<Plate> {
     let mut plates = Vec::with_capacity(NUM_PLATES);
     for _ in 0..NUM_PLATES {
         let plate_type = if rng.random_bool(PERC_OF_CONTINENTAL_PLATES) {
@@ -105,9 +113,7 @@ fn apply_tectonic_deformation(mesh: &mut Mesh, plates: &[Plate], noise: &impl No
         for pos in positions.iter_mut() {
             let v = Vec3::from(*pos).normalize();
 
-            // --- 1. ИСКАЖЕНИЕ ГРАНИЦ (Domain Warping) ---
-            // Мы добавляем шум к позиции ПЕРЕД поиском ближайшей плиты.
-            // Это сделает границы "рваными" и скругленными.
+            // 1. Искажение границ (Domain Warping)
             let warp_strength = 0.15;
             let warp_noise = Vec3::new(
                 noise.get([v.x as f64 * 1.5, v.y as f64 * 1.5, v.z as f64 * 1.5]) as f32,
@@ -117,7 +123,7 @@ fn apply_tectonic_deformation(mesh: &mut Mesh, plates: &[Plate], noise: &impl No
 
             let warped_v = (v + warp_noise).normalize();
 
-            // --- 2. ПОИСК БЛИЖАЙШИХ ПЛИТ (по искаженным координатам) ---
+            // 2. Поиск ближайших плит
             let mut dist_1 = f32::MAX;
             let mut dist_2 = f32::MAX;
             let mut p1_idx = 0;
@@ -141,21 +147,18 @@ fn apply_tectonic_deformation(mesh: &mut Mesh, plates: &[Plate], noise: &impl No
             let boundary_dist = dist_2 - dist_1;
             let edge_threshold = 0.45;
 
-            // --- 3. БАЗОВАЯ ВЫСОТА И ПЛЯЖИ ---
+            // 3. Базовая высота и пляжи
             let mut h = if p1.plate_type == PlateType::Continental {
                 0.12
             } else {
                 -0.35
             };
 
-            // Если мы на континенте, а рядом океан — создаем склон к пляжу
             if p1.plate_type == PlateType::Continental && p2.plate_type == PlateType::Oceanic {
                 let beach_factor = (boundary_dist / 0.2).clamp(0.0, 1.0);
-                // Плавно опускаем высоту от 0.12 до -0.05 при приближении к границе
                 h = h * beach_factor - (1.0 - beach_factor) * 0.05;
-            }
-            // Если мы в океане, а рядом континент — создаем мелководье (шельф)
-            else if p1.plate_type == PlateType::Oceanic && p2.plate_type == PlateType::Continental
+            } else if p1.plate_type == PlateType::Oceanic
+                && p2.plate_type == PlateType::Continental
             {
                 let shelf_factor = (boundary_dist / 0.25).clamp(0.0, 1.0);
                 h = h * shelf_factor - (1.0 - shelf_factor) * 0.1;
@@ -169,27 +172,25 @@ fn apply_tectonic_deformation(mesh: &mut Mesh, plates: &[Plate], noise: &impl No
                 h = h * mountain_factor + (1.0 - mountain_factor) * 0.01;
             }
 
-            // --- 4. ТЕКТОНИКА (ГОРЫ И ВПАДИНЫ) ---
+            // 4. Тектоника (горы и впадины)
             if boundary_dist < edge_threshold {
                 let f = (1.0 - boundary_dist / edge_threshold).clamp(0.0, 1.0);
                 let dot = p1.drift_dir.dot(p2.drift_dir);
 
                 let mountain_noise = 0.6
-                    + noise.get([v.x as f64 * 15.0, v.y as f64 * 15.0, v.z as f64 * 15.0]) as f32
+                    + noise.get([v.x as f64 * 15.0, v.y as f64 * 15.0, v.z as f64 * 15.0])
+                        as f32
                         * 1.2;
 
                 match (p1.plate_type, p2.plate_type) {
                     (PlateType::Continental, PlateType::Continental) => {
                         if dot < 0.1 {
-                            // Высокий хребет на стыке двух континентов
                             let ridge = (f * std::f32::consts::PI).sin().powi(2);
                             h += ridge * 0.4 * mountain_noise;
                         }
                     }
                     (PlateType::Continental, PlateType::Oceanic) => {
                         if dot < 0.0 {
-                            // Горы на удалении от берега (Субдукция)
-                            // Сдвигаем пик гор вглубь континента (f от 0.2 до 0.8)
                             let m_zone = ((f - 0.2) * 2.0).clamp(0.0, 1.0);
                             let mountain_shape = (m_zone * std::f32::consts::PI).sin().powi(2);
                             h += mountain_shape * 0.3 * mountain_noise;
@@ -197,14 +198,12 @@ fn apply_tectonic_deformation(mesh: &mut Mesh, plates: &[Plate], noise: &impl No
                     }
                     (PlateType::Oceanic, PlateType::Continental) => {
                         if dot < 0.0 {
-                            // Океанический желоб прямо у границы
                             let trench_f = (1.0 - (f - 0.5).abs() * 2.0).clamp(0.0, 1.0);
                             h -= trench_f * 0.25;
                         }
                     }
                     (PlateType::Oceanic, PlateType::Oceanic) => {
                         if dot < -0.2 {
-                            // Срединный хребет
                             let ridge = (f * std::f32::consts::PI).sin();
                             h += ridge * 0.2 * mountain_noise;
                         }
@@ -212,14 +211,13 @@ fn apply_tectonic_deformation(mesh: &mut Mesh, plates: &[Plate], noise: &impl No
                 }
             }
 
-            // --- 5. ФИНАЛЬНЫЙ ШУМ И КЛЕМПЫ ---
+            // 5. Финальный шум и клемпы
             let detail_noise =
                 noise.get([v.x as f64 * 4.0, v.y as f64 * 4.0, v.z as f64 * 4.0]) as f32;
             h += detail_noise * 0.35;
 
             let final_h = h.max(-0.9);
             let visual_h = final_h;
-            // let visual_h = if final_h < 0.0 { 0.0 } else { final_h };
             *pos = (v * (RADIUS + visual_h)).to_array();
 
             let color = match final_h {
