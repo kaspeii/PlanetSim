@@ -10,7 +10,8 @@ pub enum PlateType { Oceanic, Continental }
 pub struct Plate {
     pub center_dir: Vec3,
     pub plate_type: PlateType,
-    pub drift_dir: Vec3,
+    pub euler_pole: Vec3,
+    pub angular_vel: f32,
 }
 
 pub fn generate_plates(rng: &mut impl RngExt, num_plates: usize, continental_ratio: f64) -> Vec<Plate> {
@@ -33,10 +34,25 @@ pub fn generate_plates(rng: &mut impl RngExt, num_plates: usize, continental_rat
             }
         }
 
-        let rand_vec = Vec3::new(rng.random_range(-1.0..1.0), rng.random_range(-1.0..1.0), rng.random_range(-1.0..1.0));
-        let drift_dir = (rand_vec - best_dir * best_dir.dot(rand_vec)).normalize_or_zero();
+        // Генерируем случайную ось вращения (полюс Эйлера) для плиты
+        let rand_vec = Vec3::new(
+            rng.random_range(-1.0..1.0), 
+            rng.random_range(-1.0..1.0), 
+            rng.random_range(-1.0..1.0)
+        ).normalize_or_zero();
+        
+        // Защита от нулевого вектора
+        let euler_pole = if rand_vec == Vec3::ZERO { Vec3::Y } else { rand_vec };
+        
+        // Задаем случайную скорость вращения плиты
+        let angular_vel = rng.random_range(0.5..2.0); 
 
-        plates.push(Plate { center_dir: best_dir, plate_type, drift_dir });
+        plates.push(Plate { 
+            center_dir: best_dir, 
+            plate_type, 
+            euler_pole, 
+            angular_vel 
+        });
     }
     plates
 }
@@ -64,8 +80,15 @@ pub fn simulate_tectonics(grid: &mut WorldGrid, plates: &[Plate], noise: &impl N
 
         if boundary_dist < config.edge_threshold {
             let f = (1.0 - boundary_dist / config.edge_threshold).clamp(0.0, 1.0);
+            // Вектор от центра одной плиты к другой как общая нормаль границы (сглаживает зигзаги)
             let boundary_normal = (p2.center_dir - p1.center_dir).normalize_or_zero();
-            let convergence = (p1.drift_dir - p2.drift_dir).dot(boundary_normal);
+
+            // Точные линейные скорости коры в текущем гексе
+            let v1 = p1.euler_pole.cross(dir) * p1.angular_vel;
+            let v2 = p2.euler_pole.cross(dir) * p2.angular_vel;
+
+            // Проекция относительной скорости на общую нормаль
+            let convergence = (v1 - v2).dot(boundary_normal);
 
             let mountain_noise = 0.6 + noise.get([warped_dir.x as f64 * 15.0, warped_dir.y as f64 * 15.0, warped_dir.z as f64 * 15.0]) as f32 * 1.2;
             h += calculate_boundary_elevation(p1.plate_type, p2.plate_type, f, convergence, mountain_noise);
