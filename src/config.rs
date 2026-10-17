@@ -24,11 +24,11 @@ impl Default for PlanetConfig {
             subdivisions: 7,
             num_plates: 15,
             continental_ratio: 0.4,
-            warp_strength: 0.15,
+            warp_strength: 0.35,
             edge_threshold: 0.45,
             cont_base_height: 0.12,
             ocean_base_height: -0.35,
-            diffusion_strength: 0.25,
+            diffusion_strength: 0.35,
         }
     }
 }

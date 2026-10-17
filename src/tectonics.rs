@@ -189,32 +189,32 @@ fn calculate_boundary_elevation(t1: PlateType, t2: PlateType, f: f32, convergenc
         // Коллизия (Гималаи)
         (PlateType::Continental, PlateType::Continental) if convergence > 0.0 => {
             let shape = (f * PI * 1.5).sin().powi(2);
-            shape * (0.5 + 0.5 * f) * 0.4 * mountain_noise
+            shape * (0.5 + 0.5 * f) * 0.2 * mountain_noise * convergence.clamp(0.0, 1.0).exp()
         }
         // Континентальный рифтогенез (Восточно-Африканская рифтовая долина)
         (PlateType::Continental, PlateType::Continental) if convergence < 0.0 => {
             // f.powi(4) дает широкую долину в центре, а sin поднимает плечи рифта по краям
             let graben = -f.powi(4) * 0.6; 
             let horsts = (f * PI).sin() * 0.3; 
-            (horsts + graben) * mountain_noise
+            (horsts + graben) * 0.6 * mountain_noise * convergence.clamp(0.0, 1.0).exp()
         }
         // Субдукция, сторона континента (Анды)
         (PlateType::Continental, PlateType::Oceanic) if convergence > 0.0 => {
             let m_zone = ((f - 0.2) * 2.0).clamp(0.0, 1.0);
-            (m_zone * PI).sin().powi(2) * 0.35 * mountain_noise
+            (m_zone * PI).sin().powi(2) * 0.1 * mountain_noise * convergence.clamp(0.0, 1.0).exp()
         }
         // Переходная зона с разломом континентальной плиты
         (PlateType::Continental, PlateType::Oceanic) if convergence < 0.0 => {
             let m_zone = ((f - 0.2) * 2.0).clamp(0.0, 1.0);
-            -(m_zone * PI).sin().powi(2) * 0.35 * mountain_noise
+            -(m_zone * PI).sin().powi(2) * 0.25 * mountain_noise * convergence.clamp(0.0, 1.0).exp()
         }
         // Субдукция, сторона океана (Океанический желоб)
         (PlateType::Oceanic, PlateType::Continental) if convergence > 0.0 => {
-            -((1.0 - (f - 0.5).abs() * 2.0).clamp(0.0, 1.0)) * 0.25
+            -((1.0 - (f - 0.5).abs() * 2.0).clamp(0.0, 1.0)) * 0.1 * convergence.clamp(0.0, 1.0).exp()
         }
         // Субдукция, два океана (Островные дуги)
         (PlateType::Oceanic, PlateType::Oceanic) if convergence > 0.0 => {
-            (f * PI).sin() * 0.2 * mountain_noise
+            (f * PI).sin() * 0.15 * mountain_noise * convergence.clamp(0.0, 1.0).exp()
         }
         // Спрединг, два океана (Срединно-океанический хребет)
         (PlateType::Oceanic, PlateType::Oceanic) if convergence < 0.0 => {
@@ -223,7 +223,7 @@ fn calculate_boundary_elevation(t1: PlateType, t2: PlateType, f: f32, convergenc
             // sin дает пологие гряды, которые плавно затухают в 0.0 при удалении (f -> 0.0)
             let ridges = (f * PI).sin() * 0.2;
             
-            (ridges + axial_rift) * (0.5 + 0.5 * mountain_noise)
+            (ridges + axial_rift) * 0.6 * (0.5 + 0.5 * mountain_noise) * convergence.clamp(0.0, 1.0).exp()
         }
         _ => 0.0,
     }

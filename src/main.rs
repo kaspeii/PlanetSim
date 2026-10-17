@@ -77,4 +77,4 @@ fn setup_globe(
         Camera3d::default(),
         Transform::from_xyz(0.0, 0.0, 9.5),
     ));
-}
+}   
