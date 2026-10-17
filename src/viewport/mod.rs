@@ -7,13 +7,13 @@ use crate::{
         ui::{build_elevation_colors, build_plate_colors},
     },
     world::{
+        WorldConfig,
         pipeline::{PipelineSet, WorldPipeline},
         topology::WorldTopology,
-        WorldConfig,
     },
 };
 use bevy::prelude::*;
-use camera_3d::{hotkey_controls, rotate_globe, zoom_camera, GlobeInertia};
+use camera_3d::{GlobeInertia, hotkey_controls, rotate_globe, zoom_camera};
 use mesh_globe::build_globe_mesh;
 
 #[derive(Component)]
@@ -24,7 +24,7 @@ pub struct Globe;
 pub enum ViewMode {
     #[default]
     Globe3D,
-    Flat2D,
+    _Flat2D,
 }
 
 /// Активный слой раскраски карты (переключается по клавише Tab или из будущего UI)
@@ -83,10 +83,7 @@ fn setup_scene(
         Transform::from_xyz(10.0, 10.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 
-    commands.spawn((
-        Camera3d::default(),
-        Transform::from_xyz(0.0, 0.0, 9.5),
-    ));
+    commands.spawn((Camera3d::default(), Transform::from_xyz(0.0, 0.0, 9.5)));
 }
 
 fn sync_viewport_mesh(
@@ -107,15 +104,10 @@ fn sync_viewport_mesh(
         MapOverlay::TectonicPlates => build_plate_colors(&geology),
     };
 
-    if let Ok(mesh_handle) = query.single() {
-        if let Some(mut mesh) = meshes.get_mut(&mesh_handle.0) {
-            *mesh = build_globe_mesh(
-                &topology,
-                &geology.elevations,
-                &colors,
-                world_config.radius,
-            );
-        }
+    if let Ok(mesh_handle) = query.single()
+        && let Some(mut mesh) = meshes.get_mut(&mesh_handle.0)
+    {
+        *mesh = build_globe_mesh(&topology, &geology.elevations, &colors, world_config.radius);
     }
 
     pipeline.rebuild_mesh = false;

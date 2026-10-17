@@ -10,10 +10,6 @@ use world::WorldPlugin;
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_plugins((
-            WorldPlugin,
-            DomainsPlugin,
-            ViewportPlugin,
-        ))
+        .add_plugins((WorldPlugin, DomainsPlugin, ViewportPlugin))
         .run();
 }

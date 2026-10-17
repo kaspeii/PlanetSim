@@ -50,12 +50,12 @@ pub fn zoom_camera(
     mut query: Query<&mut Transform, With<Camera3d>>,
     scroll: Res<AccumulatedMouseScroll>,
 ) {
-    if scroll.delta.y != 0.0 {
-        if let Ok(mut transform) = query.single_mut() {
-            let zoom_speed = 0.5;
-            transform.translation.z =
-                (transform.translation.z - scroll.delta.y * zoom_speed).clamp(4.5, 20.0);
-        }
+    if scroll.delta.y != 0.0
+        && let Ok(mut transform) = query.single_mut()
+    {
+        let zoom_speed = 0.5;
+        transform.translation.z =
+            (transform.translation.z - scroll.delta.y * zoom_speed).clamp(4.5, 20.0);
     }
 }
 

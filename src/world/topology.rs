@@ -8,7 +8,7 @@ pub struct TopologicalCell {
     /// Направление центра ячейки на единичной сфере
     pub center: Vec3,
     /// Географические координаты: x = широта [-PI/2..PI/2], y = долгота [-PI..PI]
-    pub lat_lon: Vec2,
+    pub _lat_lon: Vec2,
     /// Индексы соседних ячеек (отсортированы по кругу)
     pub neighbors: Vec<CellId>,
     /// Направления углов гекса/пентагона на единичной сфере
@@ -30,8 +30,7 @@ impl WorldTopology {
 
         let (incident_faces, raw_neighbors, face_centers) =
             Self::calculate_topology(&vertices, &faces);
-        let cells =
-            Self::build_cells(&vertices, &incident_faces, &raw_neighbors, &face_centers);
+        let cells = Self::build_cells(&vertices, &incident_faces, &raw_neighbors, &face_centers);
 
         Self { cells }
     }
@@ -43,19 +42,41 @@ impl WorldTopology {
     fn build_base_icosphere() -> (Vec<Vec3>, Vec<[u32; 3]>) {
         let t = (1.0 + 5.0_f32.sqrt()) / 2.0;
         let vertices = vec![
-            Vec3::new(-1.0,  t, 0.0).normalize(), Vec3::new( 1.0,  t, 0.0).normalize(),
-            Vec3::new(-1.0, -t, 0.0).normalize(), Vec3::new( 1.0, -t, 0.0).normalize(),
-            Vec3::new(0.0, -1.0,  t).normalize(), Vec3::new(0.0,  1.0,  t).normalize(),
-            Vec3::new(0.0, -1.0, -t).normalize(), Vec3::new(0.0,  1.0, -t).normalize(),
-            Vec3::new( t, 0.0, -1.0).normalize(), Vec3::new( t, 0.0,  1.0).normalize(),
-            Vec3::new(-t, 0.0, -1.0).normalize(), Vec3::new(-t, 0.0,  1.0).normalize(),
+            Vec3::new(-1.0, t, 0.0).normalize(),
+            Vec3::new(1.0, t, 0.0).normalize(),
+            Vec3::new(-1.0, -t, 0.0).normalize(),
+            Vec3::new(1.0, -t, 0.0).normalize(),
+            Vec3::new(0.0, -1.0, t).normalize(),
+            Vec3::new(0.0, 1.0, t).normalize(),
+            Vec3::new(0.0, -1.0, -t).normalize(),
+            Vec3::new(0.0, 1.0, -t).normalize(),
+            Vec3::new(t, 0.0, -1.0).normalize(),
+            Vec3::new(t, 0.0, 1.0).normalize(),
+            Vec3::new(-t, 0.0, -1.0).normalize(),
+            Vec3::new(-t, 0.0, 1.0).normalize(),
         ];
 
         let faces = vec![
-            [0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11],
-            [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
-            [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9],
-            [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1],
+            [0, 11, 5],
+            [0, 5, 1],
+            [0, 1, 7],
+            [0, 7, 10],
+            [0, 10, 11],
+            [1, 5, 9],
+            [5, 11, 4],
+            [11, 10, 2],
+            [10, 7, 6],
+            [7, 1, 8],
+            [3, 9, 4],
+            [3, 4, 2],
+            [3, 2, 6],
+            [3, 6, 8],
+            [3, 8, 9],
+            [4, 9, 5],
+            [2, 4, 11],
+            [6, 2, 10],
+            [8, 6, 7],
+            [9, 8, 1],
         ];
 
         (vertices, faces)
@@ -136,7 +157,11 @@ impl WorldTopology {
             let lat = center.y.clamp(-1.0, 1.0).asin();
             let lon = center.z.atan2(center.x);
 
-            let up = if center.y.abs() < 0.99 { Vec3::Y } else { Vec3::X };
+            let up = if center.y.abs() < 0.99 {
+                Vec3::Y
+            } else {
+                Vec3::X
+            };
             let tangent = center.cross(up).normalize();
             let bitangent = center.cross(tangent);
 
@@ -168,7 +193,7 @@ impl WorldTopology {
 
             cells.push(TopologicalCell {
                 center,
-                lat_lon: Vec2::new(lat, lon),
+                _lat_lon: Vec2::new(lat, lon),
                 neighbors: ordered_neighbors,
                 corners,
             });

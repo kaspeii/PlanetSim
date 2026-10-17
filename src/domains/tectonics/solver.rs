@@ -57,7 +57,11 @@ pub fn generate_plates(rng: &mut impl RngExt, config: &TectonicsConfig) -> Vec<P
         .normalize_or_zero();
 
         // Предохранитель на маловероятный случай генерации нулевого вектора
-        let euler_pole = if rand_vec == Vec3::ZERO { Vec3::Y } else { rand_vec };
+        let euler_pole = if rand_vec == Vec3::ZERO {
+            Vec3::Y
+        } else {
+            rand_vec
+        };
 
         // 4. Задаем случайную скалярную скорость вращения плиты
         let angular_vel = rng.random_range(config.angular_vel_min..config.angular_vel_max);
@@ -90,9 +94,21 @@ pub fn simulate_tectonics(
         let p = dir.as_dvec3() * config.warp_scale;
         let offsets = &config.warp_offsets;
 
-        let warp_x = noise.get([p.x + offsets[0][0], p.y + offsets[0][1], p.z + offsets[0][2]]) as f32;
-        let warp_y = noise.get([p.x + offsets[1][0], p.y + offsets[1][1], p.z + offsets[1][2]]) as f32;
-        let warp_z = noise.get([p.x + offsets[2][0], p.y + offsets[2][1], p.z + offsets[2][2]]) as f32;
+        let warp_x = noise.get([
+            p.x + offsets[0][0],
+            p.y + offsets[0][1],
+            p.z + offsets[0][2],
+        ]) as f32;
+        let warp_y = noise.get([
+            p.x + offsets[1][0],
+            p.y + offsets[1][1],
+            p.z + offsets[1][2],
+        ]) as f32;
+        let warp_z = noise.get([
+            p.x + offsets[2][0],
+            p.y + offsets[2][1],
+            p.z + offsets[2][2],
+        ]) as f32;
 
         let warp_noise = Vec3::new(warp_x, warp_y, warp_z) * config.warp_strength;
         let warped_dir = (dir + warp_noise).normalize();
@@ -357,8 +373,7 @@ fn calculate_boundary_elevation(
         (PlateType::Oceanic, PlateType::Oceanic) if convergence < 0.0 => {
             let axial_rift = -f.powi(config.oo_rift_axial_pow) * config.oo_rift_axial_amp;
             let ridges = (f * PI).sin() * config.oo_rift_ridge_amp;
-            let noise_mod =
-                config.oo_rift_noise_base + config.oo_rift_noise_mult * mountain_noise;
+            let noise_mod = config.oo_rift_noise_base + config.oo_rift_noise_mult * mountain_noise;
 
             (ridges + axial_rift) * config.oo_rift_total_amp * noise_mod * conv_factor
         }
@@ -369,15 +384,15 @@ fn calculate_boundary_elevation(
 }
 
 /// Клеточный автомат для диффузии (размытия) высот, избавляет от пиксельных ступенек на сетке
-pub fn step_elevation_diffusion(
-    topology: &WorldTopology,
-    elevations: &mut [f32],
-    strength: f32,
-) {
+pub fn step_elevation_diffusion(topology: &WorldTopology, elevations: &mut [f32], strength: f32) {
     let old_elevations = elevations.to_vec();
 
     for (i, cell) in topology.cells.iter().enumerate() {
-        let neighbor_sum: f32 = cell.neighbors.iter().map(|&n_id| old_elevations[n_id]).sum();
+        let neighbor_sum: f32 = cell
+            .neighbors
+            .iter()
+            .map(|&n_id| old_elevations[n_id])
+            .sum();
         let avg_neighbor = neighbor_sum / cell.neighbors.len() as f32;
 
         elevations[i] = old_elevations[i] * (1.0 - strength) + avg_neighbor * strength;
@@ -420,8 +435,7 @@ pub fn generate_hotspots(
         }
 
         let plate = &plates[plate_idx];
-        let chain_length =
-            rng.random_range(config.hotspot_chain_min..config.hotspot_chain_max);
+        let chain_length = rng.random_range(config.hotspot_chain_min..config.hotspot_chain_max);
 
         // Фиксированный шаг по времени (гарантирует, что на быстрых плитах цепочка островов
         // будет вытянута, а на медленных они сольются в один крупный массив).
