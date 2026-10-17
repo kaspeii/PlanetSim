@@ -45,8 +45,8 @@ fn setup_globe(
     let seed = rng.random_range(0..=u32::MAX);
     let perlin = Fbm::<Perlin>::new(seed);
 
-    let plates = generate_plates(&mut rng, config.num_plates, config.continental_ratio);
-    let volcanoes = generate_hotspots(&mut rng, &plates, 12); // 12 плюмов на планету
+    let plates = generate_plates(&mut rng, &config);
+    let volcanoes = generate_hotspots(&mut rng, &plates, &config);
     simulate_tectonics(&mut grid, &plates, &volcanoes, &perlin, &config);
 
     let planet_mesh = build_hex_mesh(&grid, config.radius);
