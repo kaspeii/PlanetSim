@@ -11,7 +11,7 @@ use interaction::InteractionPlugin;
 use mesh::build_hex_mesh;
 use noise::{Fbm, Perlin};
 use rand::RngExt;
-use tectonics::{generate_plates, simulate_tectonics};
+use tectonics::{generate_plates, generate_hotspots, simulate_tectonics};
 
 #[derive(Component)]
 pub struct Globe;
@@ -42,11 +42,12 @@ fn setup_globe(
     let mut grid = WorldGrid::new(config.subdivisions);
 
     let mut rng = rand::rng();
-    let plates = generate_plates(&mut rng, config.num_plates, config.continental_ratio);
     let seed = rng.random_range(0..=u32::MAX);
     let perlin = Fbm::<Perlin>::new(seed);
 
-    simulate_tectonics(&mut grid, &plates, &perlin, &config);
+    let plates = generate_plates(&mut rng, config.num_plates, config.continental_ratio);
+    let volcanoes = generate_hotspots(&mut rng, &plates, 12); // 12 плюмов на планету
+    simulate_tectonics(&mut grid, &plates, &volcanoes, &perlin, &config);
 
     let planet_mesh = build_hex_mesh(&grid, config.radius);
     commands.insert_resource(grid);

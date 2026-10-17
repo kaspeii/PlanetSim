@@ -57,7 +57,7 @@ pub fn generate_plates(rng: &mut impl RngExt, num_plates: usize, continental_rat
     plates
 }
 
-pub fn simulate_tectonics(grid: &mut WorldGrid, plates: &[Plate], noise: &impl NoiseFn<f64, 3>, config: &PlanetConfig) {
+pub fn simulate_tectonics(grid: &mut WorldGrid, plates: &[Plate], volcanoes: &[Volcano], noise: &impl NoiseFn<f64, 3>, config: &PlanetConfig) {
     for cell in &mut grid.cells {
         let dir = cell.center;
         let p = dir.as_dvec3() * 1.5;
@@ -119,7 +119,31 @@ pub fn simulate_tectonics(grid: &mut WorldGrid, plates: &[Plate], noise: &impl N
         }
 
         // Итоговая высота — это плавное взвешенное среднее двух границ
-        let h = h2 * weight2 + h3 * weight3;
+        let h1 = h2 * weight2 + h3 * weight3;
+
+        // Накладываем вулканические конусы
+        let mut max_volcano_h: f32 = 0.0;
+        for v in volcanoes {
+            let d = warped_dir.dot(v.center).clamp(-1.0, 1.0).acos();
+            if d < v.radius {
+                // Профиль вулкана: экспоненциальный или квадратичный конус
+                let f = 1.0 - (d / v.radius);
+                let profile = f.powi(2); // Делает склоны вогнутыми, как у Фудзи
+                
+                // Модулируем склоны шумом, чтобы они не были идеально ровными
+                let v_noise = noise.get([
+                    warped_dir.x as f64 * 25.0, 
+                    warped_dir.y as f64 * 25.0, 
+                    warped_dir.z as f64 * 25.0
+                ]) as f32;
+                
+                let local_h = v.height * profile * (0.8 + 0.2 * v_noise);
+                max_volcano_h = max_volcano_h.max(local_h);
+            }
+        }
+        
+        // Вулканы пробивают базовый рельеф
+        let h = h1.max(h1 + max_volcano_h);
 
         let detail_noise = noise.get([warped_dir.x as f64 * 4.0, warped_dir.y as f64 * 4.0, warped_dir.z as f64 * 4.0]) as f32;
         cell.elevation = (h + detail_noise * 0.35).max(-0.9);
@@ -235,4 +259,66 @@ pub fn step_elevation_diffusion(grid: &mut WorldGrid, strength: f32) {
         let avg_neighbor: f32 = cell.neighbors.iter().map(|&n_id| old_elevations[n_id]).sum::<f32>() / cell.neighbors.len() as f32;
         cell.elevation = old_elevations[i] * (1.0 - strength) + avg_neighbor * strength;
     }
+}
+
+pub struct Volcano {
+    pub center: Vec3,
+    pub height: f32,
+    pub radius: f32,
+}
+
+pub fn generate_hotspots(rng: &mut impl RngExt, plates: &[Plate], count: usize) -> Vec<Volcano> {
+    let mut volcanoes = Vec::new();
+    
+    for _ in 0..count {
+        // 1. Создаем случайную статичную горячую точку в мантии
+        let plume_pos = Vec3::new(
+            rng.random_range(-1.0..1.0),
+            rng.random_range(-1.0..1.0),
+            rng.random_range(-1.0..1.0),
+        ).normalize_or_zero();
+        
+        if plume_pos == Vec3::ZERO { continue; }
+
+        // 2. Находим, какая плита сейчас проплывает над этим плюмом
+        let mut best_dist = f32::MAX;
+        let mut plate_idx = 0;
+        for (i, plate) in plates.iter().enumerate() {
+            let d = plume_pos.dot(plate.center_dir).clamp(-1.0, 1.0).acos();
+            if d < best_dist {
+                best_dist = d;
+                plate_idx = i;
+            }
+        }
+        
+        let plate = &plates[plate_idx];
+        
+        // 3. Генерируем цепочку вулканов вдоль вектора движения
+        let chain_length = rng.random_range(8..20);
+        
+        // Шаг по времени. Чтобы вулканы не слипались в одну линию на быстрых плитах
+        // и не разлетались на медленных, привязываем шаг к скорости плиты.
+        let time_step = 0.08; 
+        
+        for step in 0..chain_length {
+            // Чем старше вулкан, тем дальше он "уехал" на плите
+            let angle = plate.angular_vel * (step as f32) * time_step;
+            
+            // Вращаем точку плюма по дуге вокруг полюса Эйлера
+            let rotation = Quat::from_axis_angle(plate.euler_pole, angle);
+            let volcano_pos = rotation * plume_pos;
+            
+            // 4. Эрозия: старые вулканы становятся ниже и расползаются вширь
+            let age_factor = 1.0 - (step as f32 / chain_length as f32);
+            let height = rng.random_range(0.35..1.25) * age_factor.powf(1.5);
+            let radius = 0.04 + 0.06 * (1.0 - age_factor);
+            
+            volcanoes.push(Volcano {
+                center: volcano_pos,
+                height,
+                radius,
+            });
+        }
+    }
+    volcanoes
 }
