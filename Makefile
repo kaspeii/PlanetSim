@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help build release run check test lint fmt fmt-check clean doc audit watch
+.PHONY: help check build release run dev test lint fmt fmt-check setup-linux doc audit watch ci clean
 
 ## help: Показать список доступных команд
 help:
@@ -24,6 +24,10 @@ release:
 run:
 	cargo run
 
+## dev: Запуск с динамической линковкой для быстрой компиляции (Bevy)
+dev:
+	cargo run --features bevy/dynamic_linking
+
 ## test: Запуск всех тестов
 test:
 	cargo test -- --nocapture
@@ -39,6 +43,11 @@ fmt:
 ## fmt-check: Проверка стиля кода без изменения файлов (для CI)
 fmt-check:
 	cargo fmt --all -- --check
+
+## setup-linux: Установка системных C-библиотек для Ubuntu/Debian
+setup-linux:
+	sudo apt-get update
+	sudo apt-get install -y g++ pkg-config libx11-dev libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
 
 ## doc: Генерация документации проекта (без сторонних зависимостей)
 doc:
