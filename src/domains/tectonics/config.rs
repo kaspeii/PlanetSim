@@ -170,7 +170,7 @@ impl Default for TectonicsConfig {
             // Общее количество тектонических плит на планете
             num_plates: 15, // release - 25
             // Вероятность того, что сгенерированная плита будет континентальной (от 0.0 до 1.0)
-            continental_ratio: 0.3,
+            continental_ratio: 0.4,
 
             // === Параметры макро-шума и искажения (Domain Warping) ===
             // Сила искажения границ плит (чем больше, тем сильнее извиваются разломы)
@@ -290,21 +290,21 @@ impl Default for TectonicsConfig {
             // Количество плюмов на планете
             hotspot_count: 24,
             // Минимальное количество вулканов в одной цепи плюма
-            hotspot_chain_min: 8,
+            hotspot_chain_min: 5,
             // Максимальное количество вулканов в одной цепи плюма
-            hotspot_chain_max: 20,
+            hotspot_chain_max: 15,
             // Шаг по времени (расстояние) между извержениями вулканов
-            hotspot_time_step: 0.08,
+            hotspot_time_step: 0.06,
             // Минимальная базовая высота нового вулкана
-            hotspot_height_min: 0.35,
+            hotspot_height_min: 0.3,
             // Максимальная базовая высота нового вулкана
-            hotspot_height_max: 1.15,
+            hotspot_height_max: 1.0,
             // Степень эрозии со временем (снижения высоты старых вулканов)
-            hotspot_erosion_pow: 1.0,
+            hotspot_erosion_pow: 0.5,
             // Базовый радиус нового вулкана
-            hotspot_radius_base: 0.08,
+            hotspot_radius_base: 0.06,
             // Прирост радиуса старых вулканов (оседание и расползание)
-            hotspot_radius_growth: 0.06,
+            hotspot_radius_growth: 0.02,
             // Показатель степени для профиля склона вулкана (2 = вогнутые склоны, как у Фудзи)
             volcano_profile_pow: 2,
             // Масштаб (частота) шума, искажающего склоны вулкана

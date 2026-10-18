@@ -76,7 +76,10 @@ fn render_ui_shell(
                     let mut changed = false;
 
                     changed |= ui
-                        .radio_value(&mut *overlay, MapOverlay::Elevation, "Рельеф (Высоты)")
+                        .radio_value(&mut *overlay, MapOverlay::SpaceView, "Базовый")
+                        .changed();
+                    changed |= ui
+                        .radio_value(&mut *overlay, MapOverlay::Elevation, "Рельеф")
                         .changed();
                     changed |= ui
                         .radio_value(
@@ -87,6 +90,18 @@ fn render_ui_shell(
                         .changed();
                     changed |= ui
                         .radio_value(&mut *overlay, MapOverlay::Temperature, "Температура")
+                        .changed();
+
+                    changed |= ui
+                        .radio_value(&mut *overlay, MapOverlay::Albedo, "Альбедо")
+                        .changed();
+
+                    changed |= ui
+                        .radio_value(
+                            &mut *overlay,
+                            MapOverlay::Continentality,
+                            "Континентальность",
+                        )
                         .changed();
 
                     if changed {

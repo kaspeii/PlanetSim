@@ -8,6 +8,7 @@ use bevy::{
 pub fn build_globe_mesh(
     topology: &WorldTopology,
     elevations: &[f32],
+    flatten_water: bool,
     cell_colors: &[[f32; 4]],
     radius: f32,
 ) -> Mesh {
@@ -17,8 +18,13 @@ pub fn build_globe_mesh(
     let mut indices: Vec<u32> = Vec::new();
 
     for (cell_id, cell) in topology.cells.iter().enumerate() {
-        let h = elevations[cell_id];
-        let r = radius + h;
+        let real_h = elevations[cell_id];
+        let render_h = if flatten_water {
+            real_h.max(0.0)
+        } else {
+            real_h
+        };
+        let r = radius + render_h;
         let top_color = cell_colors[cell_id];
         let top_normal = cell.center.to_array();
 
@@ -48,10 +54,16 @@ pub fn build_globe_mesh(
 
         for k in 0..n_corners {
             let neighbor_id = cell.neighbors[k];
-            let neighbor_h = elevations[neighbor_id];
+            let real_neighbor_h = elevations[neighbor_id];
 
-            if h > neighbor_h {
-                let r_bottom = radius + neighbor_h;
+            if real_h > real_neighbor_h {
+                let render_neighbor_h = if flatten_water {
+                    real_neighbor_h.max(0.0)
+                } else {
+                    real_neighbor_h
+                };
+                let r_bottom = radius + render_neighbor_h;
+
                 let c1 = cell.corners[k];
                 let c2 = cell.corners[(k + 1) % n_corners];
 
@@ -138,4 +150,57 @@ pub fn recolor_globe_mesh(
     }
 
     colors
+}
+
+pub fn reposition_globe_mesh(
+    topology: &WorldTopology,
+    real_elevations: &[f32], // Реальные высоты (нужны, чтобы условие стен совпало!)
+    flatten_water: bool,     // Выравнивать ли воду
+    radius: f32,
+) -> Vec<[f32; 3]> {
+    let mut positions: Vec<[f32; 3]> = Vec::with_capacity(3_200_000);
+
+    for (cell_id, cell) in topology.cells.iter().enumerate() {
+        let real_h = real_elevations[cell_id];
+        let render_h = if flatten_water {
+            real_h.max(0.0)
+        } else {
+            real_h
+        };
+        let r = radius + render_h;
+
+        // Центр и углы
+        positions.push((cell.center * r).to_array());
+        let n_corners = cell.corners.len();
+        for &corner_dir in &cell.corners {
+            positions.push((corner_dir * r).to_array());
+        }
+
+        // Стены: ВАЖНО проверять по real_h, чтобы число вершин не изменилось!
+        for k in 0..n_corners {
+            let neighbor_id = cell.neighbors[k];
+            let real_neighbor_h = real_elevations[neighbor_id];
+
+            if real_h > real_neighbor_h {
+                let render_neighbor_h = if flatten_water {
+                    real_neighbor_h.max(0.0)
+                } else {
+                    real_neighbor_h
+                };
+                let r_bottom = radius + render_neighbor_h;
+
+                let c1 = cell.corners[k];
+                let c2 = cell.corners[(k + 1) % n_corners];
+
+                positions.extend_from_slice(&[
+                    (c1 * r).to_array(),
+                    (c2 * r).to_array(),
+                    (c1 * r_bottom).to_array(),
+                    (c2 * r_bottom).to_array(),
+                ]);
+            }
+        }
+    }
+
+    positions
 }

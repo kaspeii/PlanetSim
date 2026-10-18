@@ -21,4 +21,25 @@ fn temperature_to_color(t: f32) -> Color {
     }
 }
 
+pub fn build_albedo_colors(climate: &ClimateLayer) -> Vec<[f32; 4]> {
+    climate
+        .albedo
+        .iter()
+        .map(|&a| Color::srgb(a, a, a).to_linear().to_f32_array()) // От черного до белого
+        .collect()
+}
+
+pub fn build_continentality_colors(climate: &ClimateLayer) -> Vec<[f32; 4]> {
+    // Находим самую глубокую точку суши для нормализации цвета
+    let max_dist = climate.distance_to_ocean.iter().copied().max().unwrap_or(1) as f32;
+    climate
+        .distance_to_ocean
+        .iter()
+        .map(|&d| {
+            let val = 1.0 - (d as f32 / max_dist); // Берег - белый, глубь материка - черная
+            Color::srgb(val, val, val).to_linear().to_f32_array()
+        })
+        .collect()
+}
+
 // Здесь же будет draw_climate_tab() для bevy_egui с ползунками из config

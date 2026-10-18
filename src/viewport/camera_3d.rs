@@ -77,9 +77,12 @@ pub fn hotkey_controls(
     // Переключение режима карты (Рельеф <-> Плиты)
     if keys.just_pressed(KeyCode::Tab) {
         *overlay = match *overlay {
+            MapOverlay::SpaceView => MapOverlay::Elevation,
             MapOverlay::Elevation => MapOverlay::TectonicPlates,
-            MapOverlay::TectonicPlates => MapOverlay::Elevation,
-            MapOverlay::Temperature => MapOverlay::Temperature,
+            MapOverlay::TectonicPlates => MapOverlay::Temperature,
+            MapOverlay::Temperature => MapOverlay::Albedo,
+            MapOverlay::Albedo => MapOverlay::Continentality,
+            MapOverlay::Continentality => MapOverlay::SpaceView,
         };
         pipeline.rebuild_mesh = true;
     }

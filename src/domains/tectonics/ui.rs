@@ -18,9 +18,14 @@ pub fn build_plate_colors(geology: &GeologyLayer) -> Vec<[f32; 4]> {
     geology
         .plate_ids
         .iter()
-        .map(|&plate_id| {
-            let hue = (plate_id as f32 / total_plates) * 360.0;
-            Color::hsl(hue, 0.65, 0.5).to_linear().to_f32_array()
+        .enumerate()
+        .map(|(i, &plate_id)| {
+            if geology.volcano_mask[i] {
+                Color::srgb(0.1, 0.1, 0.1).to_linear().to_f32_array()
+            } else {
+                let hue = (plate_id as f32 / total_plates) * 360.0;
+                Color::hsl(hue, 0.65, 0.5).to_linear().to_f32_array()
+            }
         })
         .collect()
 }
