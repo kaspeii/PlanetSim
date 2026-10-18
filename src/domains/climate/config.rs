@@ -24,6 +24,20 @@ pub struct ClimateConfig {
     pub ice_albedo: f32,
     /// Температура, при которой земля покрывается льдом (меняя альбедо)
     pub freezing_temp: f32,
+
+    // --- ПАРАМЕТРЫ ДАВЛЕНИЯ И ВЕТРОВ ---
+    /// Сила базовых широтных поясов (ячейки Хэдли, Феррела, Полярная)
+    pub latitudinal_pressure_weight: f32,
+    /// Насколько сильно прогрев/охлаждение материков искажает пояса давления
+    pub thermal_pressure_weight: f32,
+    /// Множитель скорости ветра от перепада давлений
+    pub wind_speed_multiplier: f32,
+    /// Сила Кориолиса (максимальный угол отклонения ветра в радианах, ~1.1 рад = ~63°)
+    pub coriolis_strength: f32,
+    /// Насколько сильно горные хребты тормозят ветер при подъеме
+    pub mountain_wind_barrier: f32,
+    /// Отрисовывать ли 3D-стрелки направления ветра поверх глобуса
+    pub show_wind_arrows: bool,
 }
 
 impl Default for ClimateConfig {
@@ -41,6 +55,13 @@ impl Default for ClimateConfig {
             land_albedo: 0.3,
             ice_albedo: 0.8,
             freezing_temp: -5.0, // Лед формируется при устойчивом минусе
+
+            latitudinal_pressure_weight: 0.65,
+            thermal_pressure_weight: 0.45,
+            wind_speed_multiplier: 12.0,
+            coriolis_strength: 1.05, // Отклонение ~60 градусов дает реалистичные пассаты и западные ветры
+            mountain_wind_barrier: 8.0,
+            show_wind_arrows: false,
         }
     }
 }

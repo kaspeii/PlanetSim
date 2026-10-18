@@ -4,7 +4,10 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 
 use crate::{
-    domains::tectonics::{config::TectonicsConfig, ui::draw_tectonics_tab},
+    domains::{
+        climate::{config::ClimateConfig, ui::draw_climate_tab},
+        tectonics::{config::TectonicsConfig, ui::draw_tectonics_tab},
+    },
     viewport::MapOverlay,
     world::pipeline::WorldPipeline,
 };
@@ -34,7 +37,8 @@ impl Plugin for UiPlugin {
 fn render_ui_shell(
     mut contexts: EguiContexts,
     mut active_tab: ResMut<ActiveTab>,
-    mut config: ResMut<TectonicsConfig>,
+    mut tectonics_config: ResMut<TectonicsConfig>,
+    mut climate_config: ResMut<ClimateConfig>,
     mut pipeline: ResMut<WorldPipeline>,
     mut overlay: ResMut<MapOverlay>,
 ) -> Result {
@@ -104,6 +108,14 @@ fn render_ui_shell(
                         )
                         .changed();
 
+                    changed |= ui
+                        .radio_value(&mut *overlay, MapOverlay::Pressure, "Ячейки давления")
+                        .changed();
+
+                    changed |= ui
+                        .radio_value(&mut *overlay, MapOverlay::Winds, "Ветра")
+                        .changed();
+
                     if changed {
                         pipeline.recolor_mesh = true;
                     }
@@ -114,9 +126,11 @@ fn render_ui_shell(
                 .default_size(300.0)
                 .show(ui, |ui| {
                     egui::ScrollArea::vertical().show(ui, |ui| match *active_tab {
-                        ActiveTab::Tectonics => draw_tectonics_tab(ui, &mut config, &mut pipeline),
+                        ActiveTab::Tectonics => {
+                            draw_tectonics_tab(ui, &mut tectonics_config, &mut pipeline)
+                        }
                         ActiveTab::Climate => {
-                            ui.label("Настройки климата (в разработке)");
+                            draw_climate_tab(ui, &mut climate_config, &mut pipeline)
                         }
                         ActiveTab::Hydrology => {
                             ui.label("Настройки рек (в разработке)");

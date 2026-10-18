@@ -5,7 +5,10 @@ use crate::{
     domains::{
         climate::{
             data::ClimateLayer,
-            ui::{build_albedo_colors, build_continentality_colors, build_temperature_colors},
+            ui::{
+                build_albedo_colors, build_continentality_colors, build_pressure_colors,
+                build_temperature_colors, build_wind_colors,
+            },
         },
         tectonics::{
             data::GeologyLayer,
@@ -43,6 +46,8 @@ pub enum MapOverlay {
     Temperature,
     Albedo,
     Continentality,
+    Pressure,
+    Winds,
     // Humidity,
     // Biomes,
     // Civilizations,
@@ -153,6 +158,8 @@ fn sync_viewport_mesh(
         MapOverlay::Temperature => build_temperature_colors(&climate),
         MapOverlay::Albedo => build_albedo_colors(&climate),
         MapOverlay::Continentality => build_continentality_colors(&climate),
+        MapOverlay::Pressure => build_pressure_colors(&climate),
+        MapOverlay::Winds => build_wind_colors(&climate),
     };
 
     if let Ok(mesh_handle) = query.single()

@@ -82,7 +82,9 @@ pub fn hotkey_controls(
             MapOverlay::TectonicPlates => MapOverlay::Temperature,
             MapOverlay::Temperature => MapOverlay::Albedo,
             MapOverlay::Albedo => MapOverlay::Continentality,
-            MapOverlay::Continentality => MapOverlay::SpaceView,
+            MapOverlay::Continentality => MapOverlay::Pressure,
+            MapOverlay::Pressure => MapOverlay::Winds,
+            MapOverlay::Winds => MapOverlay::SpaceView,
         };
         pipeline.rebuild_mesh = true;
     }
