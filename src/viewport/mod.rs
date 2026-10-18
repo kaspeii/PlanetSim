@@ -128,6 +128,7 @@ pub fn build_space_colors(geology: &GeologyLayer, climate: &ClimateLayer) -> Vec
         .collect()
 }
 
+#[allow(clippy::too_many_arguments)] // не забыть нормально пофиксить при рефакторинге
 fn sync_viewport_mesh(
     mut pipeline: ResMut<WorldPipeline>,
     topology: Res<WorldTopology>,
@@ -154,31 +155,31 @@ fn sync_viewport_mesh(
         MapOverlay::Continentality => build_continentality_colors(&climate),
     };
 
-    if let Ok(mesh_handle) = query.single() {
-        if let Some(mut mesh) = meshes.get_mut(&mesh_handle.0) {
-            let flatten_water = *overlay == MapOverlay::SpaceView;
-            if pipeline.rebuild_mesh {
-                *mesh = build_globe_mesh(
-                    &topology,
-                    &geology.elevations,
-                    flatten_water,
-                    &colors,
-                    world_config.radius,
-                );
-            } else if pipeline.recolor_mesh {
-                // 1. Быстро обновляем высоты (сплющиваем или возвращаем океан)
-                let new_positions = reposition_globe_mesh(
-                    &topology,
-                    &geology.elevations,
-                    flatten_water,
-                    world_config.radius,
-                );
-                mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, new_positions);
+    if let Ok(mesh_handle) = query.single()
+        && let Some(mut mesh) = meshes.get_mut(&mesh_handle.0)
+    {
+        let flatten_water = *overlay == MapOverlay::SpaceView;
+        if pipeline.rebuild_mesh {
+            *mesh = build_globe_mesh(
+                &topology,
+                &geology.elevations,
+                flatten_water,
+                &colors,
+                world_config.radius,
+            );
+        } else if pipeline.recolor_mesh {
+            // 1. Быстро обновляем высоты (сплющиваем или возвращаем океан)
+            let new_positions = reposition_globe_mesh(
+                &topology,
+                &geology.elevations,
+                flatten_water,
+                world_config.radius,
+            );
+            mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, new_positions);
 
-                // 2. Быстро обновляем цвета (ВАЖНО: передаем всегда &geology.elevations, чтобы совпало число вершин)
-                let vertex_colors = recolor_globe_mesh(&topology, &geology.elevations, &colors);
-                mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vertex_colors);
-            }
+            // 2. Быстро обновляем цвета (ВАЖНО: передаем всегда &geology.elevations, чтобы совпало число вершин)
+            let vertex_colors = recolor_globe_mesh(&topology, &geology.elevations, &colors);
+            mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vertex_colors);
         }
     }
 

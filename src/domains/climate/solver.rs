@@ -44,8 +44,8 @@ pub fn simulate_temperature(
 
     // 2. ПРОХОД: Поиск в ширину (BFS) для расчета расстояния только от океанов
     let mut queue = VecDeque::new();
-    for i in 0..num_cells {
-        if is_ocean[i] {
+    for (i, &ocean) in is_ocean.iter().enumerate().take(num_cells) {
+        if ocean {
             climate.distance_to_ocean[i] = 0;
             queue.push_back(i);
         } else {
