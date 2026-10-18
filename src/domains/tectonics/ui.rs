@@ -31,8 +31,14 @@ pub fn build_plate_colors(geology: &GeologyLayer) -> Vec<[f32; 4]> {
     let (mut ci, mut oi) = (0usize, 0usize);
     for (i, p) in geology.plates.iter().enumerate() {
         match p.plate_type {
-            PlateType::Continental => { cont_rank[i] = ci; ci += 1; }
-            PlateType::Oceanic => { ocean_rank[i] = oi; oi += 1; }
+            PlateType::Continental => {
+                cont_rank[i] = ci;
+                ci += 1;
+            }
+            PlateType::Oceanic => {
+                ocean_rank[i] = oi;
+                oi += 1;
+            }
         }
     }
 
@@ -42,7 +48,7 @@ pub fn build_plate_colors(geology: &GeologyLayer) -> Vec<[f32; 4]> {
         .enumerate()
         .map(|(i, &plate_id)| {
             if geology.volcano_mask[i] {
-                return Color::srgb(0.1, 0.1, 0.1).to_linear().to_f32_array()
+                return Color::srgb(0.1, 0.1, 0.1).to_linear().to_f32_array();
             }
 
             let Some(plate) = geology.plates.get(plate_id) else {
@@ -69,13 +75,13 @@ pub fn elevation_to_color(h: f32) -> Color {
     match h {
         x if x <= -0.44 => Color::srgb(0.05, 0.02, 0.01), // почти чёрный кофе
         x if x <= -0.16 => Color::srgb(0.15, 0.08, 0.04), // тёмный шоколад
-        x if x < -0.02  => Color::srgb(0.30, 0.17, 0.09), // горький шоколад
-        x if x < 0.01   => Color::srgb(0.50, 0.32, 0.17), // карамель (было 0.035)
-        x if x < 0.12   => Color::srgb(0.46, 0.29, 0.15), // средний коричневый — равнина (светлее)
-        x if x < 0.32   => Color::srgb(0.62, 0.40, 0.20), // тёплый орех (было 0.18)
-        x if x < 0.50   => Color::srgb(0.78, 0.46, 0.19), // охра (было 0.4)
-        x if x < 0.64   => Color::srgb(0.87, 0.33, 0.12), // кирпич (было 0.55)
-        _               => Color::srgb(0.95, 0.18, 0.10), // раскалённый красный (было 0.7)
+        x if x < -0.02 => Color::srgb(0.30, 0.17, 0.09),  // горький шоколад
+        x if x < 0.01 => Color::srgb(0.50, 0.32, 0.17),   // карамель (было 0.035)
+        x if x < 0.12 => Color::srgb(0.46, 0.29, 0.15),   // средний коричневый — равнина (светлее)
+        x if x < 0.32 => Color::srgb(0.62, 0.40, 0.20),   // тёплый орех (было 0.18)
+        x if x < 0.50 => Color::srgb(0.78, 0.46, 0.19),   // охра (было 0.4)
+        x if x < 0.64 => Color::srgb(0.87, 0.33, 0.12),   // кирпич (было 0.55)
+        _ => Color::srgb(0.95, 0.18, 0.10),               // раскалённый красный (было 0.7)
     }
 }
 
