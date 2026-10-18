@@ -1,3 +1,4 @@
+use super::data::ClimateSeason;
 use bevy::prelude::*;
 
 #[derive(Resource, Clone)]
@@ -25,7 +26,6 @@ pub struct ClimateConfig {
     /// Температура, при которой земля покрывается льдом (меняя альбедо)
     pub freezing_temp: f32,
 
-    // --- ПАРАМЕТРЫ ДАВЛЕНИЯ И ВЕТРОВ ---
     /// Сила базовых широтных поясов (ячейки Хэдли, Феррела, Полярная)
     pub latitudinal_pressure_weight: f32,
     /// Насколько сильно прогрев/охлаждение материков искажает пояса давления
@@ -38,6 +38,16 @@ pub struct ClimateConfig {
     pub mountain_wind_barrier: f32,
     /// Отрисовывать ли 3D-стрелки направления ветра поверх глобуса
     pub show_wind_arrows: bool,
+
+    /// Сила переноса тепла ветрами (0.0 — ветра не влияют на температуру, 1.0 — максимум)
+    pub heat_advection_strength: f32,
+    /// Количество итераций поиска равновесия (Температура <-> Давление/Ветра)
+    pub equilibrium_iterations: usize,
+
+    /// Наклон оси планеты в радианах (0.41 рад ≈ 23.5°)
+    pub axial_tilt: f32,
+    /// Какой из трех предрассчитанных сезонов сейчас показывать на глобусе
+    pub active_season: ClimateSeason,
 }
 
 impl Default for ClimateConfig {
@@ -62,6 +72,12 @@ impl Default for ClimateConfig {
             coriolis_strength: 1.05, // Отклонение ~60 градусов дает реалистичные пассаты и западные ветры
             mountain_wind_barrier: 8.0,
             show_wind_arrows: false,
+
+            heat_advection_strength: 0.75,
+            equilibrium_iterations: 4,
+
+            axial_tilt: 0.41,
+            active_season: ClimateSeason::Spring, // По умолчанию отображаем Весну
         }
     }
 }

@@ -5,11 +5,8 @@ use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 
 use crate::{
     domains::{
-        climate::{config::ClimateConfig, ui::draw_climate_tab},
-        tectonics::{config::TectonicsConfig, ui::draw_tectonics_tab},
-    },
-    viewport::MapOverlay,
-    world::pipeline::WorldPipeline,
+        climate::{config::ClimateConfig, data::ClimateLayer, ui::draw_climate_tab}, tectonics::{config::TectonicsConfig, ui::draw_tectonics_tab},
+    }, viewport::MapOverlay, world::pipeline::WorldPipeline,
 };
 
 #[derive(Resource, Default, PartialEq)]
@@ -39,6 +36,7 @@ fn render_ui_shell(
     mut active_tab: ResMut<ActiveTab>,
     mut tectonics_config: ResMut<TectonicsConfig>,
     mut climate_config: ResMut<ClimateConfig>,
+    mut climate: ResMut<ClimateLayer>, 
     mut pipeline: ResMut<WorldPipeline>,
     mut overlay: ResMut<MapOverlay>,
 ) -> Result {
@@ -130,7 +128,7 @@ fn render_ui_shell(
                             draw_tectonics_tab(ui, &mut tectonics_config, &mut pipeline)
                         }
                         ActiveTab::Climate => {
-                            draw_climate_tab(ui, &mut climate_config, &mut pipeline)
+                            draw_climate_tab(ui, &mut climate_config, &mut climate, &mut pipeline)
                         }
                         ActiveTab::Hydrology => {
                             ui.label("Настройки рек (в разработке)");

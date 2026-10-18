@@ -13,7 +13,7 @@ use crate::{
 use bevy::prelude::*;
 use config::ClimateConfig;
 use data::ClimateLayer;
-use solver::{simulate_pressure_and_winds, simulate_temperature};
+use solver::simulate_all_seasons;
 use ui::draw_wind_arrows_gizmos;
 
 pub struct ClimatePlugin;
@@ -36,8 +36,7 @@ fn run_climate_pipeline(
 ) {
     if pipeline.regenerate_climate {
         climate.resize(topology.cells.len());
-        simulate_temperature(&topology, &geology, &mut climate, &config);
-        simulate_pressure_and_winds(&topology, &geology, &mut climate, &config);
+        simulate_all_seasons(&topology, &geology, &mut climate, &config);
         pipeline.regenerate_climate = false;
         pipeline.rebuild_mesh = true;
     }

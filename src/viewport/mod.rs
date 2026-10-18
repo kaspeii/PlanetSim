@@ -105,30 +105,37 @@ pub fn build_space_colors(geology: &GeologyLayer, climate: &ClimateLayer) -> Vec
         .iter()
         .enumerate()
         .map(|(i, &h)| {
-            let temp = climate.temperatures[i];
+            let albedo = climate.albedo[i];
 
-            // 1. Снег и лед (если температура ниже замерзания)
-            if temp < -5.0 {
-                return Color::srgb(0.9, 0.95, 1.0).to_linear().to_f32_array();
-            }
-
-            // 2. Океан (вода всегда красится в синий, если не покрыта льдом)
-            if h <= 0.0 {
-                // Можно менять оттенок в зависимости от глубины
-                let depth = (h / -1.0).clamp(0.0, 1.0);
-                return Color::srgb(0.02, 0.1, 0.3 + (1.0 - depth) * 0.2)
-                    .to_linear()
-                    .to_f32_array();
-            }
-
-            // 3. Базовая суша (в будущем здесь будет чтение из массива биомов)
-            if h < 0.035 {
-                Color::srgb(0.85, 0.75, 0.5).to_linear().to_f32_array() // Низины (зеленые)
-            } else if h < 0.2 {
-                Color::srgb(0.2, 0.45, 0.15).to_linear().to_f32_array() // Низины (зеленые)
+            // 1. Считаем базовый цвет поверхности (без льда) и её родное альбедо
+            let (base_r, base_g, base_b, base_albedo) = if h <= 0.0 {
+                // Океан: на шельфе (близко к 0.0) вода чуть светлее и бирюзовее, в бездне — темно-синяя
+                let depth = (h / -0.35).clamp(0.0, 1.0);
+                let r = 0.02 + (1.0 - depth) * 0.04;
+                let g = 0.10 + (1.0 - depth) * 0.18;
+                let b = 0.28 + (1.0 - depth) * 0.25;
+                (r, g, b, 0.06) // 0.06 — ocean_albedo
+            } else if h < 0.03 {
+                // Пляжи и прибрежные низины
+                (0.76, 0.70, 0.50, 0.30)
+            } else if h < 0.20 {
+                // Равнины и предгорья (зелень)
+                let t = ((h - 0.03) / 0.17).clamp(0.0, 1.0);
+                (0.20 + t * 0.12, 0.46 - t * 0.08, 0.15 + t * 0.05, 0.30)
             } else {
-                Color::srgb(0.4, 0.35, 0.3).to_linear().to_f32_array() // Горы (коричневые)
-            }
+                // Высокие горы (скалы)
+                (0.42, 0.37, 0.33, 0.30)
+            };
+
+            // 2. Вычисляем долю снега/льда (0.0 — чисто, 1.0 — сплошной ледник с альбедо 0.8)
+            let snow_cover = ((albedo - base_albedo) / (0.80 - base_albedo)).clamp(0.0, 1.0);
+
+            // 3. Плавно смешиваем базовый рельеф со снежной шапкой (0.92, 0.96, 1.0)
+            let r = base_r * (1.0 - snow_cover) + 0.92 * snow_cover;
+            let g = base_g * (1.0 - snow_cover) + 0.96 * snow_cover;
+            let b = base_b * (1.0 - snow_cover) + 1.00 * snow_cover;
+
+            Color::srgb(r, g, b).to_linear().to_f32_array()
         })
         .collect()
 }

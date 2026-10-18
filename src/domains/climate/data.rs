@@ -1,5 +1,32 @@
 use bevy::prelude::*;
 
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum ClimateSeason {
+    #[default]
+    Spring, // Весна / Осень (Равноденствие, смещение 0.0) — по умолчанию
+    Summer, // Лето в Северном полушарии / Зима в Южном (+axial_tilt)
+    Winter, // Зима в Северном полушарии / Лето в Южном (-axial_tilt)
+}
+
+#[derive(Clone, Default)]
+pub struct SeasonalSnapshot {
+    pub temperatures: Vec<f32>,
+    pub albedo: Vec<f32>,
+    pub pressure: Vec<f32>,
+    pub winds: Vec<Vec2>,
+    pub winds_3d: Vec<Vec3>,
+}
+
+impl SeasonalSnapshot {
+    pub fn resize(&mut self, num_cells: usize) {
+        self.temperatures.resize(num_cells, 0.0);
+        self.albedo.resize(num_cells, 0.0);
+        self.pressure.resize(num_cells, 0.0);
+        self.winds.resize(num_cells, Vec2::ZERO);
+        self.winds_3d.resize(num_cells, Vec3::ZERO);
+    }
+}
+
 #[derive(Resource, Default)]
 pub struct ClimateLayer {
     pub temperatures: Vec<f32>,
@@ -13,6 +40,11 @@ pub struct ClimateLayer {
     pub winds: Vec<Vec2>,
     /// 3D-вектор ветра, лежащий в касательной плоскости к сфере (удобно для 3D-стрелок и адвекции)
     pub winds_3d: Vec<Vec3>,
+
+    // Предрассчитанные снимки трех сезонов для биомов, рек и мгновенного переключения в UI
+    pub spring: SeasonalSnapshot,
+    pub summer: SeasonalSnapshot,
+    pub winter: SeasonalSnapshot,
 }
 
 impl ClimateLayer {
@@ -21,8 +53,27 @@ impl ClimateLayer {
         self.humidity.resize(num_cells, 0.0);
         self.albedo.resize(num_cells, 0.0);
         self.distance_to_ocean.resize(num_cells, 0);
+
         self.pressure.resize(num_cells, 0.0);
         self.winds.resize(num_cells, Vec2::ZERO);
         self.winds_3d.resize(num_cells, Vec3::ZERO);
+
+        self.spring.resize(num_cells);
+        self.summer.resize(num_cells);
+        self.winter.resize(num_cells);
+    }
+    
+    /// Копирует предрассчитанный сезон в активные буферы рендера без пересчета физики
+    pub fn apply_active_season(&mut self, season: ClimateSeason) {
+        let snap = match season {
+            ClimateSeason::Spring => &self.spring,
+            ClimateSeason::Summer => &self.summer,
+            ClimateSeason::Winter => &self.winter,
+        };
+        self.temperatures.clone_from(&snap.temperatures);
+        self.albedo.clone_from(&snap.albedo);
+        self.pressure.clone_from(&snap.pressure);
+        self.winds.clone_from(&snap.winds);
+        self.winds_3d.clone_from(&snap.winds_3d);
     }
 }

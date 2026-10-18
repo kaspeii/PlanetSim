@@ -1,4 +1,4 @@
-use super::{config::ClimateConfig, data::ClimateLayer};
+use super::{config::ClimateConfig, data::{ClimateLayer, ClimateSeason}};
 use crate::{
     domains::tectonics::data::GeologyLayer,
     viewport::Globe,
@@ -150,77 +150,90 @@ pub fn draw_wind_arrows_gizmos(
 pub fn draw_climate_tab(
     ui: &mut egui::Ui,
     config: &mut ClimateConfig,
+    climate: &mut ClimateLayer,
     pipeline: &mut WorldPipeline,
 ) {
     ui.heading("Климат и Атмосфера");
     ui.separator();
 
-    let mut changed = false;
+    // --- БЫСТРЫЙ ПЕРЕКЛЮЧАТЕЛЬ ПРЕДРАССЧИТАННЫХ СЕЗОНОВ ---
+    ui.label("Отображаемый сезон (Сев. полушарие):");
+    let mut season_changed = false;
+    ui.horizontal(|ui| {
+        season_changed |= ui
+            .selectable_value(&mut config.active_season, ClimateSeason::Spring, "Весна / Осень")
+            .changed();
+        season_changed |= ui
+            .selectable_value(&mut config.active_season, ClimateSeason::Summer, "Лето")
+            .changed();
+        season_changed |= ui
+            .selectable_value(&mut config.active_season, ClimateSeason::Winter, "Зима")
+            .changed();
+    });
+
+    if season_changed {
+        // Не пересчитываем физику! Просто подставляем уже готовый снимок сезона:
+        climate.apply_active_season(config.active_season);
+        pipeline.recolor_mesh = true;
+    }
+
+    ui.separator();
+    let mut sim_changed = false;
 
     ui.label("Температура и Инсоляция");
-    changed |= ui
+    sim_changed |= ui
         .add(egui::Slider::new(&mut config.equator_temp, 0.0..=60.0).text("Экватор (°C)"))
         .changed();
-    changed |= ui
+    sim_changed |= ui
         .add(egui::Slider::new(&mut config.pole_temp, -70.0..=10.0).text("Полюса (°C)"))
         .changed();
-    changed |= ui
-        .add(
-            egui::Slider::new(&mut config.altitude_lapse_rate, 0.0..=150.0)
-                .text("Остывание в горах"),
-        )
+    sim_changed |= ui
+        .add(egui::Slider::new(&mut config.altitude_lapse_rate, 0.0..=100.0).text("Остывание в горах"))
         .changed();
-    changed |= ui
-        .add(
-            egui::Slider::new(&mut config.freezing_temp, -25.0..=5.0).text("Порог замерзания льда"),
-        )
+    sim_changed |= ui
+        .add(egui::Slider::new(&mut config.freezing_temp, -25.0..=5.0).text("Порог замерзания льда"))
+        .changed();
+    sim_changed |= ui
+        .add(egui::Slider::new(&mut config.axial_tilt, 0.0..=0.8).text("Наклон оси (рад)"))
         .changed();
 
     ui.separator();
     ui.label("Континентальность");
-    changed |= ui
+    sim_changed |= ui
         .add(egui::Slider::new(&mut config.base_ocean_moderation, 0.0..=1.0).text("Инерция океана"))
         .changed();
-    changed |= ui
-        .add(
-            egui::Slider::new(&mut config.continentality_factor, 0.01..=0.5)
-                .text("Затухание вглубь суши"),
-        )
+    sim_changed |= ui
+        .add(egui::Slider::new(&mut config.continentality_factor, 0.01..=0.5).text("Затухание вглубь суши"))
         .changed();
 
     ui.separator();
     ui.label("Давление и Ветра");
-    changed |= ui
-        .add(
-            egui::Slider::new(&mut config.latitudinal_pressure_weight, 0.0..=2.0)
-                .text("Сила поясов (Хэдли и др.)"),
-        )
+    sim_changed |= ui
+        .add(egui::Slider::new(&mut config.latitudinal_pressure_weight, 0.0..=2.0).text("Сила поясов (Хэдли и др.)"))
         .changed();
-    changed |= ui
-        .add(
-            egui::Slider::new(&mut config.thermal_pressure_weight, 0.0..=2.0)
-                .text("Влияние материков"),
-        )
+    sim_changed |= ui
+        .add(egui::Slider::new(&mut config.thermal_pressure_weight, 0.0..=2.0).text("Влияние материков"))
         .changed();
-    changed |= ui
-        .add(
-            egui::Slider::new(&mut config.coriolis_strength, 0.0..=1.57)
-                .text("Сила Кориолиса (рад)"),
-        )
+    sim_changed |= ui
+        .add(egui::Slider::new(&mut config.coriolis_strength, 0.0..=1.57).text("Сила Кориолиса (рад)"))
         .changed();
-    changed |= ui
+    sim_changed |= ui
         .add(egui::Slider::new(&mut config.mountain_wind_barrier, 0.0..=25.0).text("Барьер гор"))
         .changed();
-    changed |= ui
-        .add(
-            egui::Slider::new(&mut config.wind_speed_multiplier, 1.0..=30.0).text("Скорость ветра"),
-        )
+    sim_changed |= ui
+        .add(egui::Slider::new(&mut config.wind_speed_multiplier, 1.0..=30.0).text("Скорость ветра"))
+        .changed();
+    sim_changed |= ui
+        .add(egui::Slider::new(&mut config.heat_advection_strength, 0.0..=1.5).text("Распространение температуры"))
+        .changed();
+    sim_changed |= ui
+        .add(egui::Slider::new(&mut config.equilibrium_iterations, 1..=8).text("Итерации давления-температуры"))
         .changed();
 
     ui.separator();
     ui.checkbox(&mut config.show_wind_arrows, "Показать 3D-стрелки ветров");
 
-    if changed {
+    if sim_changed {
         pipeline.regenerate_climate = true;
     }
 }
