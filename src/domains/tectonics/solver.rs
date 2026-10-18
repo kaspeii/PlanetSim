@@ -195,6 +195,8 @@ pub fn simulate_tectonics(
 
         // 9. Наложение горячих точек (мантийных плюмов)
         let mut max_volcano_h: f32 = 0.0;
+        let mut is_volcano = false;
+
         let v_scale = config.volcano_noise_scale;
         let v_coords = [
             warped_dir.x as f64 * v_scale,
@@ -215,8 +217,14 @@ pub fn simulate_tectonics(
                 let profile = f.powi(config.volcano_profile_pow);
                 let local_h = v.height * profile * v_noise_mod;
                 max_volcano_h = max_volcano_h.max(local_h);
+
+                if d < v.radius * 0.70 {
+                    is_volcano = true;
+                }
             }
         }
+
+        geology.volcano_mask[cell_id] = is_volcano;
 
         // Вулканы "пробивают" базовый рельеф материка/океана
         let h = h1.max(h1 + max_volcano_h);

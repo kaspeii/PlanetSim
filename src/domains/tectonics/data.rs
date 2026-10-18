@@ -26,11 +26,13 @@ pub struct GeologyLayer {
     pub elevations: Vec<f32>,
     pub plates: Vec<Plate>,
     pub volcanoes: Vec<Volcano>,
+    pub volcano_mask: Vec<bool>,
 }
 
 impl GeologyLayer {
     pub fn resize(&mut self, num_cells: usize) {
         self.plate_ids.resize(num_cells, 0);
         self.elevations.resize(num_cells, 0.0);
+        self.volcano_mask.resize(num_cells, false);
     }
 }

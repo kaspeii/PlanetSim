@@ -15,8 +15,12 @@ pub struct WorldPipeline {
     pub regenerate_tectonics: bool,
     /// Одиночный шаг клеточного автомата сглаживания высот (например, по нажатию Space)
     pub step_tectonic_diffusion: bool,
+    /// Полная перегенерация температуры
+    pub regenerate_climate: bool,
     /// Перестроение геометрии и цветов 3D/2D меша
     pub rebuild_mesh: bool,
+    /// Перекрашивание меша
+    pub recolor_mesh: bool,
 }
 
 impl Default for WorldPipeline {
@@ -24,7 +28,9 @@ impl Default for WorldPipeline {
         Self {
             regenerate_tectonics: true, // Запускаем первичную генерацию на старте
             step_tectonic_diffusion: false,
+            regenerate_climate: false,
             rebuild_mesh: false,
+            recolor_mesh: false,
         }
     }
 }

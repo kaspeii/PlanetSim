@@ -8,7 +8,7 @@ pub struct TopologicalCell {
     /// Направление центра ячейки на единичной сфере
     pub center: Vec3,
     /// Географические координаты: x = широта [-PI/2..PI/2], y = долгота [-PI..PI]
-    pub _lat_lon: Vec2,
+    pub lat_lon: Vec2,
     /// Индексы соседних ячеек (отсортированы по кругу)
     pub neighbors: Vec<CellId>,
     /// Направления углов гекса/пентагона на единичной сфере
@@ -193,7 +193,7 @@ impl WorldTopology {
 
             cells.push(TopologicalCell {
                 center,
-                _lat_lon: Vec2::new(lat, lon),
+                lat_lon: Vec2::new(lat, lon),
                 neighbors: ordered_neighbors,
                 corners,
             });
