@@ -122,13 +122,4 @@ pub fn draw_tectonics_tab(
         egui::Slider::new(&mut config.detail_noise_amp, 0.0..=1.0)
             .text("Мелкий шум (шероховатость)"),
     );
-
-    ui.separator();
-    ui.label("Сглаживание:");
-    ui.horizontal(|ui| {
-        ui.add(egui::Slider::new(&mut config.diffusion_strength, 0.0..=1.0).text("Сила диффузии"));
-        if ui.button("Шаг сглаживания").clicked() {
-            pipeline.step_tectonic_diffusion = true;
-        }
-    });
 }

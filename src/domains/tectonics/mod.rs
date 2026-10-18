@@ -12,7 +12,7 @@ use config::TectonicsConfig;
 use data::GeologyLayer;
 use noise::{Fbm, Perlin};
 use rand::RngExt;
-use solver::{generate_hotspots, generate_plates, simulate_tectonics, step_elevation_diffusion};
+use solver::{generate_hotspots, generate_plates, simulate_tectonics};
 
 pub struct TectonicsPlugin;
 
@@ -46,12 +46,6 @@ fn run_tectonics_pipeline(
         simulate_tectonics(&topology, &mut geology, &perlin, &config);
 
         pipeline.regenerate_tectonics = false;
-        pipeline.regenerate_climate = true;
-    }
-
-    if pipeline.step_tectonic_diffusion {
-        step_elevation_diffusion(&topology, &mut geology.elevations, 0.25);
-        pipeline.step_tectonic_diffusion = false;
         pipeline.regenerate_climate = true;
     }
 }

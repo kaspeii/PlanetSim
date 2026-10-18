@@ -13,8 +13,6 @@ pub enum PipelineSet {
 pub struct WorldPipeline {
     /// Полная перегенерация тектоники с нуля
     pub regenerate_tectonics: bool,
-    /// Одиночный шаг клеточного автомата сглаживания высот (например, по нажатию Space)
-    pub step_tectonic_diffusion: bool,
     /// Полная перегенерация температуры
     pub regenerate_climate: bool,
     /// Перестроение геометрии и цветов 3D/2D меша
@@ -27,7 +25,6 @@ impl Default for WorldPipeline {
     fn default() -> Self {
         Self {
             regenerate_tectonics: true, // Запускаем первичную генерацию на старте
-            step_tectonic_diffusion: false,
             regenerate_climate: false,
             rebuild_mesh: false,
             recolor_mesh: false,

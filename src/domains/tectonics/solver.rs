@@ -7,6 +7,18 @@ use bevy::math::{Quat, Vec3};
 use noise::NoiseFn;
 use rand::RngExt;
 use std::f32::consts::PI;
+use std::collections::VecDeque;
+
+fn smoothstep(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+fn profile_factor(t: f32, smoothness: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    let sm = smoothstep(t);
+    t * (1.0 - smoothness) + sm * smoothness
+}
 
 /// Генерирует центры тектонических плит и определяет их физические параметры (ось и скорость вращения)
 pub fn generate_plates(rng: &mut impl RngExt, config: &TectonicsConfig) -> Vec<Plate> {
@@ -85,6 +97,7 @@ pub fn simulate_tectonics(
 ) {
     let plates = &geology.plates;
     let volcanoes = &geology.volcanoes;
+    let mut ridge_cells = vec![false; topology.cells.len()];
 
     for (cell_id, cell) in topology.cells.iter().enumerate() {
         let dir = cell.center;
@@ -155,38 +168,41 @@ pub fn simulate_tectonics(
         let raw_m_noise = noise.get(m_coords) as f32;
         let m_noise = config.boundary_noise_base + raw_m_noise * config.boundary_noise_amp;
 
-        // 6. Формирование гор и рифтов на границе с 2-й плитой
+        // 6. Граница с плитой 2
         if bd2 < config.edge_threshold {
-            let f2 = (1.0 - bd2 / config.edge_threshold).clamp(0.0, 1.0); // 1.0 в центре разлома, 0.0 на краю
+            let f2 = (1.0 - bd2 / config.edge_threshold).clamp(0.0, 1.0);
             let normal2 = (p2.center_dir - p1.center_dir).normalize_or_zero();
             let v2 = p2.euler_pole.cross(dir) * p2.angular_vel;
+            let convergence2 = (v1 - v2).dot(normal2) / config.convergence_ref_speed;
 
-            // Проекция разности скоростей на нормаль границы дает нам силу сжатия (convergence) или растяжения
-            let convergence2 = (v1 - v2).dot(normal2);
+            if p1.plate_type == PlateType::Oceanic
+                && p2.plate_type == PlateType::Oceanic
+                && convergence2 < 0.0
+            {
+                ridge_cells[cell_id] = true;
+            }
+
             h2 += calculate_boundary_elevation(
-                p1.plate_type,
-                p2.plate_type,
-                f2,
-                convergence2,
-                m_noise,
-                config,
+                p1.plate_type, p2.plate_type, f2, convergence2, m_noise, config,
             );
         }
 
-        // 7. Формирование гор и рифтов на границе с 3-й плитой (аналогично)
+        // 7. Граница с плитой 3 — аналогично
         if bd3 < config.edge_threshold {
             let f3 = (1.0 - bd3 / config.edge_threshold).clamp(0.0, 1.0);
             let normal3 = (p3.center_dir - p1.center_dir).normalize_or_zero();
             let v3 = p3.euler_pole.cross(dir) * p3.angular_vel;
-            let convergence3 = (v1 - v3).dot(normal3);
+            let convergence3 = (v1 - v3).dot(normal3) / config.convergence_ref_speed;
+
+            if p1.plate_type == PlateType::Oceanic
+                && p3.plate_type == PlateType::Oceanic
+                && convergence3 < 0.0
+            {
+                ridge_cells[cell_id] = true;
+            }
 
             h3 += calculate_boundary_elevation(
-                p1.plate_type,
-                p3.plate_type,
-                f3,
-                convergence3,
-                m_noise,
-                config,
+                p1.plate_type, p3.plate_type, f3, convergence3, m_noise, config,
             );
         }
 
@@ -242,8 +258,10 @@ pub fn simulate_tectonics(
             (h + detail_noise * config.detail_noise_amp).max(config.elevation_min_clamp);
     }
 
+    apply_oceanic_crust_cooling(topology, &mut geology.elevations, &ridge_cells, config);
+
     // Запускаем клеточный автомат для размытия острых ступенек пикселей
-    step_elevation_diffusion(topology, &mut geology.elevations, config.diffusion_strength);
+    step_elevation_diffusion(topology, &mut geology.elevations, config.diffusion_strength, config.slope_erosion_factor, config.diffusion_max_strength,);
 }
 
 /// Находит ровно 3 ближайшие плиты к данной точке. Это необходимо для правильной интерполяции
@@ -292,24 +310,25 @@ fn calculate_base_elevation(
         PlateType::Continental => config.cont_base_height,
         PlateType::Oceanic => config.ocean_base_height,
     };
+    let sm = config.base_profile_smoothness;
 
-    // Фактор смешивания зависит от типа соседней плиты.
-    // Это создает широкие континентальные шельфы или резкие обрывы в бездну
     match (p1.plate_type, p2.plate_type) {
         (PlateType::Continental, PlateType::Oceanic) => {
-            let factor = (boundary_dist / config.base_co_dist).clamp(0.0, 1.0);
-            h_base * factor - (1.0 - factor) * config.base_co_offset
+            let factor = profile_factor(boundary_dist / config.base_co_dist, sm);
+            let offset = (config.base_co_offset + config.base_oc_offset) * 0.5;
+            h_base * factor - (1.0 - factor) * offset
         }
         (PlateType::Oceanic, PlateType::Continental) => {
-            let factor = (boundary_dist / config.base_oc_dist).clamp(0.0, 1.0);
-            h_base * factor - (1.0 - factor) * config.base_oc_offset
+            let factor = profile_factor(boundary_dist / config.base_oc_dist, sm);
+            let offset = (config.base_co_offset + config.base_oc_offset) * 0.5;
+            h_base * factor - (1.0 - factor) * offset
         }
         (PlateType::Continental, PlateType::Continental) => {
-            let factor = (boundary_dist / config.base_cc_dist).clamp(0.0, 1.0);
+            let factor = profile_factor(boundary_dist / config.base_cc_dist, sm);
             h_base * factor + (1.0 - factor) * config.base_cc_offset
         }
         (PlateType::Oceanic, PlateType::Oceanic) => {
-            let factor = (boundary_dist / config.base_oo_dist).clamp(0.0, 1.0);
+            let factor = profile_factor(boundary_dist / config.base_oo_dist, sm);
             h_base * factor + (1.0 - factor) * config.base_oo_offset
         }
     }
@@ -392,10 +411,19 @@ fn calculate_boundary_elevation(
 }
 
 /// Клеточный автомат для диффузии (размытия) высот, избавляет от пиксельных ступенек на сетке
-pub fn step_elevation_diffusion(topology: &WorldTopology, elevations: &mut [f32], strength: f32) {
+pub fn step_elevation_diffusion(
+    topology: &WorldTopology,
+    elevations: &mut [f32],
+    strength: f32,
+    slope_erosion_factor: f32,
+    max_strength: f32,
+) {
     let old_elevations = elevations.to_vec();
 
     for (i, cell) in topology.cells.iter().enumerate() {
+        if cell.neighbors.is_empty() {
+            continue;
+        }
         let neighbor_sum: f32 = cell
             .neighbors
             .iter()
@@ -403,7 +431,58 @@ pub fn step_elevation_diffusion(topology: &WorldTopology, elevations: &mut [f32]
             .sum();
         let avg_neighbor = neighbor_sum / cell.neighbors.len() as f32;
 
-        elevations[i] = old_elevations[i] * (1.0 - strength) + avg_neighbor * strength;
+        let mut max_slope = 0.0_f32;
+        for &n_id in &cell.neighbors {
+            let diff = (old_elevations[i] - old_elevations[n_id]).abs();
+            if diff > max_slope {
+                max_slope = diff;
+            }
+        }
+
+        let local_strength =
+            (strength + max_slope * slope_erosion_factor).min(max_strength);
+
+        elevations[i] =
+            old_elevations[i] * (1.0 - local_strength) + avg_neighbor * local_strength;
+    }
+}
+
+fn apply_oceanic_crust_cooling(
+    topology: &WorldTopology,
+    elevations: &mut [f32],
+    ridge_cells: &[bool],
+    config: &TectonicsConfig,
+) {
+    let num_cells = topology.cells.len();
+    let mut dist_from_ridge = vec![u32::MAX; num_cells];
+    let mut queue = VecDeque::new();
+
+    for i in 0..num_cells {
+        if ridge_cells[i] {
+            dist_from_ridge[i] = 0;
+            queue.push_back(i);
+        }
+    }
+
+    while let Some(cell_id) = queue.pop_front() {
+        let current_dist = dist_from_ridge[cell_id];
+        for &neighbor_id in &topology.cells[cell_id].neighbors {
+            if elevations[neighbor_id] <= 0.0
+                && dist_from_ridge[neighbor_id] > current_dist + 1
+            {
+                dist_from_ridge[neighbor_id] = current_dist + 1;
+                queue.push_back(neighbor_id);
+            }
+        }
+    }
+
+    let max_dist = config.oceanic_age_max_distance.max(1.0);
+    for i in 0..num_cells {
+        if elevations[i] > 0.0 || dist_from_ridge[i] == u32::MAX {
+            continue;
+        }
+        let age_factor = smoothstep((dist_from_ridge[i] as f32) / max_dist);
+        elevations[i] -= age_factor * config.oceanic_age_depth_gain;
     }
 }
 

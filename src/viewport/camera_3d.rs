@@ -64,11 +64,6 @@ pub fn hotkey_controls(
     mut pipeline: ResMut<WorldPipeline>,
     mut overlay: ResMut<MapOverlay>,
 ) {
-    // Шаг клеточного автомата сглаживания
-    if keys.just_pressed(KeyCode::Space) {
-        pipeline.step_tectonic_diffusion = true;
-    }
-
     // Полная перегенерация планеты
     if keys.just_pressed(KeyCode::KeyR) {
         pipeline.regenerate_tectonics = true;
