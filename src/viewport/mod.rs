@@ -117,7 +117,9 @@ pub fn build_space_colors(geology: &GeologyLayer, climate: &ClimateLayer) -> Vec
             }
 
             // 3. Базовая суша (в будущем здесь будет чтение из массива биомов)
-            if h < 0.2 {
+            if h < 0.035 {
+                Color::srgb(0.85, 0.75, 0.5).to_linear().to_f32_array() // Низины (зеленые)
+            } else if h < 0.2 {
                 Color::srgb(0.2, 0.45, 0.15).to_linear().to_f32_array() // Низины (зеленые)
             } else {
                 Color::srgb(0.4, 0.35, 0.3).to_linear().to_f32_array() // Горы (коричневые)
