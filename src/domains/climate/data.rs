@@ -32,7 +32,7 @@ pub struct ClimateLayer {
     pub temperatures: Vec<f32>,
     pub humidity: Vec<f32>,
     pub albedo: Vec<f32>,
-    pub distance_to_ocean: Vec<u32>,
+    pub continentality: Vec<f32>,
 
     /// Атмосферное давление (в условных единицах отклонения от нормы: < 0 — циклон/низкое, > 0 — антициклон/высокое)
     pub pressure: Vec<f32>,
@@ -52,7 +52,7 @@ impl ClimateLayer {
         self.temperatures.resize(num_cells, 0.0);
         self.humidity.resize(num_cells, 0.0);
         self.albedo.resize(num_cells, 0.0);
-        self.distance_to_ocean.resize(num_cells, 0);
+        self.continentality.resize(num_cells, 0.0);
 
         self.pressure.resize(num_cells, 0.0);
         self.winds.resize(num_cells, Vec2::ZERO);

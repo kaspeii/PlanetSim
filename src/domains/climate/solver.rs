@@ -6,10 +6,11 @@ use crate::{domains::tectonics::data::GeologyLayer, world::topology::WorldTopolo
 use bevy::prelude::*;
 use std::collections::VecDeque;
 
-fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
-    let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+fn smoothstep(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
 }
+
 
 /// Главная функция: считает океаны 1 раз, затем просчитывает Весну, Лето и Зиму
 pub fn simulate_all_seasons(
@@ -19,16 +20,16 @@ pub fn simulate_all_seasons(
     config: &ClimateConfig,
 ) {
     // 1. Считаем расстояние до океанов (общая география для всех сезонов)
-    compute_ocean_distance(topology, geology, climate, config);
+    compute_continentality(topology, geology, climate, config);
 
-    let distance_to_ocean = climate.distance_to_ocean.clone();
+    let continentality = climate.continentality.clone();
 
     // 2. Просчитываем 3 сезона: Весна (0.0), Лето Сев. полушария (+1.0), Зима Сев. полушария (-1.0)
     simulate_single_season(
         0.0,
         topology,
         geology,
-        &distance_to_ocean,
+        &continentality,
         config,
         &mut climate.spring,
     );
@@ -36,7 +37,7 @@ pub fn simulate_all_seasons(
         1.0,
         topology,
         geology,
-        &distance_to_ocean,
+        &continentality,
         config,
         &mut climate.summer,
     );
@@ -44,7 +45,7 @@ pub fn simulate_all_seasons(
         -1.0,
         topology,
         geology,
-        &distance_to_ocean,
+        &continentality,
         config,
         &mut climate.winter,
     );
@@ -57,7 +58,7 @@ fn simulate_single_season(
     season_mult: f32, // 0.0 = Весна, 1.0 = Лето, -1.0 = Зима
     topology: &WorldTopology,
     geology: &GeologyLayer,
-    distance_to_ocean: &[u32],
+    continentality: &[f32],
     config: &ClimateConfig,
     snap: &mut SeasonalSnapshot,
 ) {
@@ -83,7 +84,7 @@ fn simulate_single_season(
             snap.albedo[i],
             sun_lat,
             topology,
-            distance_to_ocean,
+            continentality,
             config,
             geology,
         );
@@ -101,7 +102,7 @@ fn simulate_single_season(
             sun_lat,
             topology,
             geology,
-            distance_to_ocean,
+            continentality,
             config,
             snap,
         );
@@ -152,7 +153,7 @@ fn simulate_single_season(
                 snap.albedo[i],
                 sun_lat,
                 topology,
-                distance_to_ocean,
+                continentality,
                 config,
                 geology,
             );
@@ -167,7 +168,7 @@ fn simulate_single_season(
     }
 
     // Финальная синхронизация давления и ветров
-    compute_season_pressure_and_winds(sun_lat, topology, geology, distance_to_ocean, config, snap);
+    compute_season_pressure_and_winds(sun_lat, topology, geology, continentality, config, snap);
 }
 
 fn calc_radiative_sea_temp(
@@ -175,7 +176,7 @@ fn calc_radiative_sea_temp(
     albedo: f32,
     sun_lat: f32,
     topology: &WorldTopology,
-    distance_to_ocean: &[u32],
+    continentality: &[f32],
     config: &ClimateConfig,
     geology: &GeologyLayer,
 ) -> f32 {
@@ -189,12 +190,17 @@ fn calc_radiative_sea_temp(
     let raw_temp =
         config.pole_temp + (config.equator_temp - config.pole_temp) * effective_insolation;
 
-    let num_cells = topology.cells.len() as f32;
-    let avg_hex_rad = (4.0 * std::f32::consts::PI / num_cells).sqrt();
-    let real_dist = distance_to_ocean[i] as f32 * avg_hex_rad;
-
-    let moderation_factor = 1.0 / (1.0 + real_dist * config.continentality_factor * 20.0);
-    let moderation = config.base_ocean_moderation * moderation_factor;
+    let c = continentality[i]; // -1..+1
+    // Океан (c < 0): moderation выше базовой (открытый океан стабильнее)
+    // Суша (c > 0): moderation падает до 0
+    let moderation = if c < 0.0 {
+        // c ∈ [-1, 0]: открытый океан = base, берег/маргинальное море = base * (1 - reduction)
+        let reduction = config.marginal_sea_moderation_reduction;
+        config.base_ocean_moderation * (1.0 - reduction * (1.0 - c.abs()))
+    } else {
+        // c ∈ [0, 1]: берег = base, глубина континента = 0
+        config.base_ocean_moderation * (1.0 - c)
+    };
 
     // ВАЖНО: Океан обладает термоинерцией и сопротивляется резким сезонным скачкам,
     // но на самой широте остается теплым на экваторе и холодным у полюсов (годовая норма широты),
@@ -214,7 +220,7 @@ fn calc_radiative_sea_temp(
     let elev = geology.elevations[i];
     if elev <= 0.0 && lat.abs() > 0.6 {
         // 0.0 на мелком шельфе (-0.04), 1.0 в глубоком океане (-0.30)
-        let deep_water_factor = smoothstep(-0.06, -0.22, elev);
+        let deep_water_factor = smoothstep((elev - -0.06) / (0.22 - -0.06));
         // Мелкий шельф у полюсов теряет до -3.5°C (обрастает льдом), а глубокая вода получает до +3.5°C защиты
         let bathymetry_shift = (deep_water_factor - 0.35) * 6.0;
         final_sea_temp += bathymetry_shift;
@@ -229,7 +235,7 @@ fn calc_albedo(temp: f32, elevation: f32, config: &ClimateConfig) -> f32 {
     } else {
         config.land_albedo
     };
-    let ice_blend = smoothstep(config.freezing_temp - 4.0, config.freezing_temp + 2.0, temp);
+    let ice_blend = smoothstep((temp - config.freezing_temp - 4.0) / (config.freezing_temp + 2.0 - config.freezing_temp - 4.0));
     config.ice_albedo * (1.0 - ice_blend) + base_albedo * ice_blend
 }
 
@@ -237,7 +243,7 @@ fn compute_season_pressure_and_winds(
     sun_lat: f32,
     topology: &WorldTopology,
     geology: &GeologyLayer,
-    distance_to_ocean: &[u32],
+    continentality: &[f32],
     config: &ClimateConfig,
     snap: &mut SeasonalSnapshot,
 ) {
@@ -258,7 +264,8 @@ fn compute_season_pressure_and_winds(
         let temp_anomaly = (sea_level_temp - expected_lat_temp) / 14.0;
         // Над сушей термические барические центры сильнее (1.0), над океаном мягче (0.35), но они ЕСТЬ!
         // Это создает прибрежные барические ложбины, которые закручивают ветра у кромки льда!
-        let surface_mult = if distance_to_ocean[i] == 0 { 0.35 } else { 1.0 };
+        let c = continentality[i];
+        let surface_mult = 0.35 + 0.65 * smoothstep((c + 0.3) / 1.3);
         thermal_field[i] = (-temp_anomaly * surface_mult).clamp(-1.5, 1.5);
     }
 
@@ -343,7 +350,7 @@ fn compute_season_pressure_and_winds(
     }
 }
 
-fn compute_ocean_distance(
+fn compute_continentality(
     topology: &WorldTopology,
     geology: &GeologyLayer,
     climate: &mut ClimateLayer,
@@ -377,24 +384,36 @@ fn compute_ocean_distance(
             }
         }
     }
-
+    // BFS 1: расстояние до океана (для суши)
+    let mut dist_to_ocean = vec![u32::MAX; num_cells];
     let mut queue = VecDeque::new();
-    for (i, &ocean) in is_ocean.iter().enumerate().take(num_cells) {
-        if ocean {
-            climate.distance_to_ocean[i] = 0;
+    for i in 0..num_cells {
+        if is_ocean[i] {
+            dist_to_ocean[i] = 0;
             queue.push_back(i);
-        } else {
-            climate.distance_to_ocean[i] = u32::MAX;
         }
     }
+    // ... стандартный BFS ...
 
-    while let Some(cell_id) = queue.pop_front() {
-        let current_dist = climate.distance_to_ocean[cell_id];
-        for &neighbor_id in &topology.cells[cell_id].neighbors {
-            if climate.distance_to_ocean[neighbor_id] > current_dist + 1 {
-                climate.distance_to_ocean[neighbor_id] = current_dist + 1;
-                queue.push_back(neighbor_id);
-            }
+    // BFS 2: расстояние до суши (для океана)
+    let mut dist_to_land = vec![u32::MAX; num_cells];
+    queue.clear();
+    for i in 0..num_cells {
+        if !is_ocean[i] {
+            dist_to_land[i] = 0;
+            queue.push_back(i);
         }
+    }
+    // ... стандартный BFS ...
+
+    // Знаковая континентальность: -1 = открытый океан, 0 = берег, +1 = глубь континента
+    for i in 0..num_cells {
+        climate.continentality[i] = if is_ocean[i] {
+            let norm = (dist_to_land[i] as f32 / config.ocean_continentality_scale).min(1.0);
+            -smoothstep(norm)  // -1 далеко от суши, 0 у берега
+        } else {
+            let norm = (dist_to_ocean[i] as f32 / config.land_continentality_scale).min(1.0);
+            smoothstep(norm)   // 0 у берега, +1 в глуби континента
+        };
     }
 }

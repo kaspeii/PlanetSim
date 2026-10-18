@@ -36,12 +36,15 @@ pub fn build_albedo_colors(climate: &ClimateLayer) -> Vec<[f32; 4]> {
 }
 
 pub fn build_continentality_colors(climate: &ClimateLayer) -> Vec<[f32; 4]> {
-    let max_dist = climate.distance_to_ocean.iter().copied().max().unwrap_or(1) as f32;
     climate
-        .distance_to_ocean
+        .continentality
         .iter()
-        .map(|&d| {
-            let val = 1.0 - (d as f32 / max_dist);
+        .map(|&c| {
+            // c ∈ [-1, +1] → val ∈ [0, 1]
+            // -1 (глубокий океан) → 0.0 (чёрный)
+            //  0 (берег)          → 0.5 (серый)
+            // +1 (глубина суши)  → 1.0 (белый)
+            let val = (c + 1.0) * 0.5;
             Color::srgb(val, val, val).to_linear().to_f32_array()
         })
         .collect()

@@ -48,6 +48,10 @@ pub struct ClimateConfig {
     pub axial_tilt: f32,
     /// Какой из трех предрассчитанных сезонов сейчас показывать на глобусе
     pub active_season: ClimateSeason,
+
+    pub ocean_continentality_scale: f32,  // расстояние в клетках, где океан считается «полностью открытым». Рекомендую 10–15
+    pub land_continentality_scale: f32,   // расстояние, где суша считается «полностью континентальной». Рекомендую 15–25
+    pub marginal_sea_moderation_reduction: f32,  // 0.0 = отключить эффект маргинальных морей, 0.15 = мягкий, 0.3 = сильный. Рекомендую 0.15
 }
 
 impl Default for ClimateConfig {
@@ -78,6 +82,11 @@ impl Default for ClimateConfig {
 
             axial_tilt: 0.41,
             active_season: ClimateSeason::Spring, // По умолчанию отображаем Весну
+
+            ocean_continentality_scale: 15.0,  // расстояние в клетках, где океан считается «полностью открытым». Рекомендую 10–15
+            land_continentality_scale: 25.0,   // расстояние, где суша считается «полностью континентальной». Рекомендую 15–25
+            marginal_sea_moderation_reduction: 0.15,  // 0.0 = отключить эффект маргинальных морей, 0.15 = мягкий, 0.3 = сильный. Рекомендую 0.15
+            
         }
     }
 }
