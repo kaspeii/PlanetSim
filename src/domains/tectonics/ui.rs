@@ -1,4 +1,4 @@
-use super::{config::TectonicsConfig, data::GeologyLayer};
+use super::{config::TectonicsConfig, data::GeologyLayer, data::PlateType};
 use crate::world::pipeline::WorldPipeline;
 use bevy::prelude::*;
 use bevy_egui::egui;
@@ -14,18 +14,53 @@ pub fn build_elevation_colors(geology: &GeologyLayer) -> Vec<[f32; 4]> {
 
 /// Генерирует массив цветов для режима просмотра тектонических плит (переключение по Tab)
 pub fn build_plate_colors(geology: &GeologyLayer) -> Vec<[f32; 4]> {
-    let total_plates = geology.plates.len().max(1) as f32;
+    // сколько всего континентальных и океанических
+    let (mut n_cont, mut n_ocean) = (0usize, 0usize);
+    for p in &geology.plates {
+        match p.plate_type {
+            PlateType::Continental => n_cont += 1,
+            PlateType::Oceanic => n_ocean += 1,
+        }
+    }
+    let n_cont = n_cont.max(1) as f32;
+    let n_ocean = n_ocean.max(1) as f32;
+
+    // индекс плиты внутри своего типа
+    let mut cont_rank = vec![0usize; geology.plates.len()];
+    let mut ocean_rank = vec![0usize; geology.plates.len()];
+    let (mut ci, mut oi) = (0usize, 0usize);
+    for (i, p) in geology.plates.iter().enumerate() {
+        match p.plate_type {
+            PlateType::Continental => { cont_rank[i] = ci; ci += 1; }
+            PlateType::Oceanic => { ocean_rank[i] = oi; oi += 1; }
+        }
+    }
+
     geology
         .plate_ids
         .iter()
         .enumerate()
         .map(|(i, &plate_id)| {
             if geology.volcano_mask[i] {
-                Color::srgb(0.1, 0.1, 0.1).to_linear().to_f32_array()
-            } else {
-                let hue = (plate_id as f32 / total_plates) * 360.0;
-                Color::hsl(hue, 0.65, 0.5).to_linear().to_f32_array()
+                return Color::srgb(0.1, 0.1, 0.1).to_linear().to_f32_array()
             }
+
+            let Some(plate) = geology.plates.get(plate_id) else {
+                return Color::srgb(1.0, 1.0, 1.0).to_linear().to_f32_array();
+            };
+
+            let (hue, sat, light) = match plate.plate_type {
+                PlateType::Continental => {
+                    let t = cont_rank[plate_id] as f32 / n_cont;
+                    (10.0 + t * 85.0, 0.75, 0.40)
+                }
+                PlateType::Oceanic => {
+                    let t = ocean_rank[plate_id] as f32 / n_ocean;
+                    (185.0 + t * 85.0, 0.55, 0.20)
+                }
+            };
+
+            Color::hsl(hue, sat, light).to_linear().to_f32_array()
         })
         .collect()
 }
