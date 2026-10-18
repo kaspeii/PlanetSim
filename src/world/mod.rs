@@ -16,8 +16,8 @@ pub struct WorldConfig {
 impl Default for WorldConfig {
     fn default() -> Self {
         Self {
-            radius: 5.0,
-            subdivisions: 7,
+            radius: 5.0, // release - 7
+            subdivisions: 7, //release - 8
         }
     }
 }

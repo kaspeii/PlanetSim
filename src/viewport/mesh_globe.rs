@@ -96,3 +96,46 @@ pub fn build_globe_mesh(
     mesh.insert_indices(Indices::U32(indices));
     mesh
 }
+
+pub fn recolor_globe_mesh(
+    topology: &WorldTopology,
+    elevations: &[f32],
+    cell_colors: &[[f32; 4]],
+) -> Vec<[f32; 4]> {
+    // Резервируем память сразу, чтобы избежать фризов от реаллокации
+    let mut colors: Vec<[f32; 4]> = Vec::with_capacity(3_200_000);
+
+    for (cell_id, cell) in topology.cells.iter().enumerate() {
+        let h = elevations[cell_id];
+        let top_color = cell_colors[cell_id];
+
+        // Цвет центра
+        colors.push(top_color);
+
+        // Цвета углов
+        let n_corners = cell.corners.len();
+        for _ in 0..n_corners {
+            colors.push(top_color);
+        }
+
+        // Цвета отвесных стен (затемненные)
+        let wall_color = [
+            top_color[0] * 0.75,
+            top_color[1] * 0.75,
+            top_color[2] * 0.75,
+            top_color[3],
+        ];
+
+        for k in 0..n_corners {
+            let neighbor_id = cell.neighbors[k];
+            let neighbor_h = elevations[neighbor_id];
+
+            if h > neighbor_h {
+                // Если есть стена, она состоит из 4 вершин (quad)
+                colors.extend_from_slice(&[wall_color; 4]);
+            }
+        }
+    }
+
+    colors
+}

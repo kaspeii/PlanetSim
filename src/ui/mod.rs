@@ -85,9 +85,12 @@ fn render_ui_shell(
                             "Тектонические плиты",
                         )
                         .changed();
+                    changed |= ui
+                        .radio_value(&mut *overlay, MapOverlay::Temperature, "Температура")
+                        .changed();
 
                     if changed {
-                        pipeline.rebuild_mesh = true;
+                        pipeline.recolor_mesh = true;
                     }
                 });
 

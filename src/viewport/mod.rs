@@ -2,9 +2,12 @@ pub mod camera_3d;
 pub mod mesh_globe;
 
 use crate::{
-    domains::tectonics::{
-        data::GeologyLayer,
-        ui::{build_elevation_colors, build_plate_colors},
+    domains::{
+        climate::{data::ClimateLayer, ui::build_temperature_colors},
+        tectonics::{
+            data::GeologyLayer,
+            ui::{build_elevation_colors, build_plate_colors},
+        },
     },
     world::{
         WorldConfig,
@@ -14,7 +17,7 @@ use crate::{
 };
 use bevy::prelude::*;
 use camera_3d::{GlobeInertia, hotkey_controls, rotate_globe, zoom_camera};
-use mesh_globe::build_globe_mesh;
+use mesh_globe::{build_globe_mesh, recolor_globe_mesh};
 
 #[derive(Component)]
 pub struct Globe;
@@ -33,8 +36,7 @@ pub enum MapOverlay {
     #[default]
     Elevation,
     TectonicPlates,
-    // Будущие слои:
-    // Temperature,
+    Temperature,
     // Humidity,
     // Biomes,
     // Civilizations,
@@ -91,24 +93,39 @@ fn sync_viewport_mesh(
     topology: Res<WorldTopology>,
     world_config: Res<WorldConfig>,
     geology: Res<GeologyLayer>,
+    climate: Res<ClimateLayer>,
     overlay: Res<MapOverlay>,
     query: Query<&Mesh3d, With<Globe>>,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
-    if !pipeline.rebuild_mesh || geology.elevations.is_empty() {
+    if !pipeline.rebuild_mesh && !pipeline.recolor_mesh {
+        return;
+    }
+    if geology.elevations.is_empty() || climate.temperatures.is_empty() {
         return;
     }
 
     let colors = match *overlay {
         MapOverlay::Elevation => build_elevation_colors(&geology),
         MapOverlay::TectonicPlates => build_plate_colors(&geology),
+        MapOverlay::Temperature => build_temperature_colors(&climate),
     };
 
-    if let Ok(mesh_handle) = query.single()
-        && let Some(mut mesh) = meshes.get_mut(&mesh_handle.0)
-    {
-        *mesh = build_globe_mesh(&topology, &geology.elevations, &colors, world_config.radius);
+if let Ok(mesh_handle) = query.single() {
+        if let Some(mut mesh) = meshes.get_mut(&mesh_handle.0) {
+            if pipeline.rebuild_mesh {
+                *mesh = build_globe_mesh(&topology, &geology.elevations, &colors, world_config.radius);
+            } else if pipeline.recolor_mesh {
+                let vertex_colors = recolor_globe_mesh(
+                    &topology,
+                    &geology.elevations,
+                    &colors
+                );
+                mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vertex_colors);
+            }
+        }
     }
 
     pipeline.rebuild_mesh = false;
+    pipeline.recolor_mesh = false;
 }

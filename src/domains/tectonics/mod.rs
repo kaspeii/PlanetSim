@@ -46,12 +46,12 @@ fn run_tectonics_pipeline(
         simulate_tectonics(&topology, &mut geology, &perlin, &config);
 
         pipeline.regenerate_tectonics = false;
-        pipeline.rebuild_mesh = true;
+        pipeline.regenerate_climate = true;
     }
 
     if pipeline.step_tectonic_diffusion {
         step_elevation_diffusion(&topology, &mut geology.elevations, 0.25);
         pipeline.step_tectonic_diffusion = false;
-        pipeline.rebuild_mesh = true;
+        pipeline.regenerate_climate = true;
     }
 }

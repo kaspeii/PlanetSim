@@ -79,6 +79,7 @@ pub fn hotkey_controls(
         *overlay = match *overlay {
             MapOverlay::Elevation => MapOverlay::TectonicPlates,
             MapOverlay::TectonicPlates => MapOverlay::Elevation,
+            MapOverlay::Temperature => MapOverlay::Temperature,
         };
         pipeline.rebuild_mesh = true;
     }
