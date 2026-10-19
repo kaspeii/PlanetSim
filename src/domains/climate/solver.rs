@@ -124,8 +124,9 @@ fn simulate_single_season(
         // Б) Дальнобойный перенос тепла ветрами (25 шагов чистой адвекции без гашения!).
         // Это позволяет ветрам с материков и теплых морей реально пробивать вглубь океана и ломать круг льда!
         let mut advected_temps = sea_level_temps.clone();
+        let mut prev_temps = vec![0.0_f32; num_cells];
         for _ in 0..25 {
-            let prev = advected_temps.clone();
+            std::mem::swap(&mut advected_temps, &mut prev_temps);
             for i in 0..num_cells {
                 let cell = &topology.cells[i];
                 let wind = snap.winds_3d[i];
@@ -146,7 +147,7 @@ fn simulate_single_season(
                     if alignment > 0.0 {
                         // Возводим в квадрат для направленного струйного переноса без бокового размытия
                         let w = alignment * alignment;
-                        upwind_sum += prev[n_id] * w;
+                        upwind_sum += prev_temps[n_id] * w;
                         weight_sum += w;
                     }
                 }
@@ -154,7 +155,7 @@ fn simulate_single_season(
                 if weight_sum > 0.0 {
                     let incoming = upwind_sum / weight_sum;
                     let step_rate = (wind_speed * 0.06).clamp(0.0, 0.55);
-                    advected_temps[i] = prev[i] * (1.0 - step_rate) + incoming * step_rate;
+                    advected_temps[i] = prev_temps[i] * (1.0 - step_rate) + incoming * step_rate;
                 }
             }
         }
@@ -216,11 +217,9 @@ fn calc_radiative_sea_temp(
     // Океан (c < 0): moderation выше базовой (открытый океан стабильнее)
     // Суша (c > 0): moderation падает до 0
     let moderation = if c < 0.0 {
-        // c ∈ [-1, 0]: открытый океан = base, берег/маргинальное море = base * (1 - reduction)
         let reduction = config.marginal_sea_moderation_reduction;
-        config.base_ocean_moderation * (1.0 - reduction * (1.0 - c.abs()))
+        config.base_ocean_moderation * (1.0 - reduction * c.abs())
     } else {
-        // c ∈ [0, 1]: берег = base, глубина континента = 0
         config.base_ocean_moderation * (1.0 - c)
     };
 
@@ -231,7 +230,7 @@ fn calc_radiative_sea_temp(
     let ocean_lat_baseline = config.pole_temp
         + (config.equator_temp - config.pole_temp) * annual_lat_insolation * 0.85;
     let global_avg = (config.equator_temp + config.pole_temp) / 2.0;
-    let ocean_equilibrium = ocean_lat_baseline * 0.65 + global_avg * 0.35;
+    let ocean_equilibrium = ocean_lat_baseline * 0.82 + global_avg * 0.18;
 
     let mut final_sea_temp = raw_temp * (1.0 - moderation) + ocean_equilibrium * moderation;
 
@@ -240,7 +239,7 @@ fn calc_radiative_sea_temp(
     // Над глубоководными впадинами и за бровкой шельфа (h < -0.18) огромная масса воды удерживает тепло,
     // останавливая кромку льда вдоль континентального склона!
     let elev = geology.elevations[i];
-    if elev <= 0.0 && lat.abs() > 0.6 {
+    if elev <= 0.0 && lat.abs() > 1.0 {
         // 0.0 на мелком шельфе (-0.04), 1.0 в глубоком океане (-0.30)
         let deep_water_factor = smoothstep((elev - (-0.06)) / (-0.22 - (-0.06)));
         // Мелкий шельф у полюсов теряет до -3.5°C (обрастает льдом), а глубокая вода получает до +3.5°C защиты
@@ -333,7 +332,7 @@ fn compute_season_pressure_and_winds(
         // чтобы в огромном океане рождались отдельные циклоны и антициклоны!
         let belt_envelope = if c < 0.0 {
             let ocean_core = smoothstep(-c); // от 0.0 у берега до 1.0 в центре океана
-            let rossby_wave = 1.0 + 0.35 * (3.0 * lon + belt_lat * 2.0).cos() * lat.sin().abs();
+            let rossby_wave = 1.0 + 0.35 * (3.0 * lon + belt_lat * 2.0).cos() * (lat * 2.0).sin().abs();
             (0.55 + 0.85 * ocean_core) * rossby_wave
         } else {
             // На суше зональные пояса быстро уступают место термическим муссонам
@@ -531,7 +530,8 @@ fn compute_continentality(
 
     // Знаковая континентальность: -1 = открытый океан, 0 = берег, +1 = глубь континента
     for i in 0..num_cells {
-        climate.continentality[i] = if is_ocean[i] {
+        let is_water = geology.elevations[i] <= 0.0;
+        climate.continentality[i] = if is_water {
             let physical_dist = dist_to_land[i] as f32 * avg_hex_rad;
             let norm = (physical_dist / config.ocean_continentality_scale).min(1.0);
             -smoothstep(norm) // -1 далеко от материков, 0 у берега материка
