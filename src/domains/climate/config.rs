@@ -14,8 +14,6 @@ pub struct ClimateConfig {
     pub min_ocean_size_ratio: f32,
     /// Базовое смягчение температур над самим океаном (dist = 0)
     pub base_ocean_moderation: f32,
-    /// Как быстро падает влияние океана при продвижении вглубь материка
-    pub continentality_factor: f32,
 
     /// Отражательная способность воды (поглощает много тепла)
     pub ocean_albedo: f32,
@@ -66,7 +64,6 @@ impl Default for ClimateConfig {
 
             min_ocean_size_ratio: 0.01, // 1% от площади планеты
             base_ocean_moderation: 0.6,
-            continentality_factor: 0.1, // При 0.1 на расстоянии 10 гексов от моря эффект упадет в 2 раза
 
             ocean_albedo: 0.06,
             land_albedo: 0.3,
@@ -86,9 +83,9 @@ impl Default for ClimateConfig {
             axial_tilt: 0.41,
             active_season: ClimateSeason::Spring, // По умолчанию отображаем Весну
 
-            ocean_continentality_scale: 0.15,  // расстояние в клетках, где океан считается «полностью открытым». Рекомендую 10–15
-            land_continentality_scale: 0.45,   // расстояние, где суша считается «полностью континентальной». Рекомендую 15–25
-            marginal_sea_moderation_reduction: 0.15,  // 0.0 = отключить эффект маргинальных морей, 0.15 = мягкий, 0.3 = сильный. Рекомендую 0.15
+            ocean_continentality_scale: 0.35,  // расстояние в клетках, где океан считается «полностью открытым».
+            land_continentality_scale: 0.45,   // расстояние, где суша считается «полностью континентальной».
+            marginal_sea_moderation_reduction: 0.20,  // 0.0 = отключить эффект маргинальных морей, 0.15 = мягкий, 0.3 = сильный. Рекомендую 0.15
 
             mountain_base_level: 0.1,   // бывший магический 0.08; предлагаю 0.10
             mountain_blend_width: 0.02,  // ширина мягкого порога; напр. 0.02

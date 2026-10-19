@@ -18,15 +18,35 @@ pub fn build_temperature_colors(climate: &ClimateLayer) -> Vec<[f32; 4]> {
 }
 
 fn temperature_to_color(t: f32) -> Color {
-    match t {
-        x if x < -20.0 => Color::srgb(0.9, 0.9, 1.0), // Белый/Лед
-        x if x < -5.0 => Color::srgb(0.6, 0.2, 0.8),  // Фиолетовый
-        x if x < 5.0 => Color::srgb(0.0, 0.3, 0.8),   // Синий
-        x if x < 15.0 => Color::srgb(0.2, 0.7, 0.4),  // Зеленый
-        x if x < 25.0 => Color::srgb(0.9, 0.8, 0.2),  // Желтый
-        x if x < 35.0 => Color::srgb(0.9, 0.4, 0.1),  // Оранжевый
-        _ => Color::srgb(0.7, 0.1, 0.1),              // Красный
+    // Узловые точки: (Температура °C, R, G, B)
+    const STOPS: &[(f32, [f32; 3])] = &[
+        (-30.0, [0.92, 0.94, 1.00]), // Белый / Арктический лед
+        (-15.0, [0.60, 0.20, 0.80]), // Фиолетовый (суровый мороз)
+        (0.0,   [0.05, 0.35, 0.85]), // Синий (точка замерзания)
+        (12.0,  [0.20, 0.72, 0.40]), // Зеленый (умеренный климат)
+        (22.0,  [0.92, 0.82, 0.20]), // Желтый (субтропики)
+        (30.0,  [0.92, 0.40, 0.10]), // Оранжевый (жара)
+        (42.0,  [0.65, 0.08, 0.08]), // Темно-красный (пустынный зной)
+    ];
+
+    if t <= STOPS[0].0 {
+        let [r, g, b] = STOPS[0].1;
+        return Color::srgb(r, g, b);
     }
+    for window in STOPS.windows(2) {
+        let (t0, c0) = window[0];
+        let (t1, c1) = window[1];
+        if t <= t1 {
+            let f = (t - t0) / (t1 - t0);
+            return Color::srgb(
+                c0[0] + (c1[0] - c0[0]) * f,
+                c0[1] + (c1[1] - c0[1]) * f,
+                c0[2] + (c1[2] - c0[2]) * f,
+            );
+        }
+    }
+    let [r, g, b] = STOPS.last().unwrap().1;
+    Color::srgb(r, g, b)
 }
 
 pub fn build_albedo_colors(climate: &ClimateLayer) -> Vec<[f32; 4]> {
@@ -85,7 +105,7 @@ pub fn build_pressure_colors(climate: &ClimateLayer) -> Vec<[f32; 4]> {
         .pressure
         .iter()
         .map(|&p| {
-            let norm = p.clamp(-1.0, 1.0);
+            let norm = (p).clamp(-1.0, 1.0);
             let color = if norm < 0.0 {
                 // От синего (-1.0) к белому (0.0)
                 let t = norm + 1.0;
@@ -141,9 +161,18 @@ fn wind_speed_to_color(s: f32) -> Color {
     }
 }
 
-/// Отрисовка 3D-стрелок ветра поверх глобуса (с учетом текущего вращения планеты!)
+/// Кэш отфильтрованных стрелок, чтобы не пересчитывать HashMap каждый кадр!
+#[derive(Default)]
+pub struct WindArrowsCache {
+    pub cached_season: Option<ClimateSeason>,
+    /// Хранит (индекс клетки, нормированная скорость s в 0..1)
+    pub arrows: Vec<(usize, f32)>,
+}
+
+/// Отрисовка 3D-стрелок ветра поверх глобуса (БЕЗ пересчета сетки каждый кадр!)
 pub fn draw_wind_arrows_gizmos(
     mut gizmos: Gizmos,
+    mut cache: Local<WindArrowsCache>,
     topology: Res<WorldTopology>,
     geology: Res<GeologyLayer>,
     climate: Res<ClimateLayer>,
@@ -156,51 +185,63 @@ pub fn draw_wind_arrows_gizmos(
     }
     let Ok(globe_transform) = globe_query.single() else { return; };
 
-    let num_cells = topology.cells.len();
-    let max_speed = climate.winds_3d.iter()
-        .map(|w| w.length())
-        .fold(0.0001_f32, f32::max);
+    // Пересчитываем сетку стрелок ТОЛЬКО если изменился климат, сезон или размер планеты!
+    if climate.is_changed() || config.is_changed() || cache.cached_season != Some(config.active_season) {
+        cache.cached_season = Some(config.active_season);
+        cache.arrows.clear();
 
-    // Бюджет стрелок -> размер пространственной сетки.
-    // Для target_total = 2500 получаем grid_size = 14 (14³ = 2744 ячеек).
-    let target_total = 10000usize.min(num_cells);
-    let grid_size = ((target_total as f32).cbrt().ceil() as i32).max(2);
-    let inv_cell_size = grid_size as f32 * 0.5; // (x,y,z) в [-1,1] -> [0, grid_size)
+        let max_speed = climate.winds_3d.iter()
+            .map(|w| w.length())
+            .fold(0.0001_f32, f32::max);
 
-    // 1) Для каждой ячейки 3D-сетки храним САМУЮ СИЛЬНУЮ точку.
-    let mut best_per_cell: HashMap<(i32, i32, i32), (usize, f32)> =
-        HashMap::with_capacity(target_total * 2);
+        // Сетка 12x12x12 дает ~600–800 хорошо читаемых стрелок на сферу
+        let grid_size = 12_i32;
+        let inv_cell_size = grid_size as f32 * 0.5;
 
-    for (i, w) in climate.winds_3d.iter().enumerate() {
-        let speed = w.length();
-        if speed < 0.01 {
-            continue;
+        let mut best_per_cell: HashMap<(i32, i32, i32), (usize, f32)> =
+            HashMap::with_capacity(1024);
+
+        for (i, w) in climate.winds_3d.iter().enumerate() {
+            let speed = w.length();
+            if speed < max_speed * 0.05 {
+                continue;
+            }
+            let pos = topology.cells[i].center;
+            let key = (
+                ((pos.x + 1.0) * inv_cell_size) as i32,
+                ((pos.y + 1.0) * inv_cell_size) as i32,
+                ((pos.z + 1.0) * inv_cell_size) as i32,
+            );
+            let entry = best_per_cell.entry(key).or_insert((i, speed));
+            if speed > entry.1 {
+                *entry = (i, speed);
+            }
         }
-        let pos = topology.cells[i].center;
-        let key = (
-            ((pos.x + 1.0) * inv_cell_size) as i32,
-            ((pos.y + 1.0) * inv_cell_size) as i32,
-            ((pos.z + 1.0) * inv_cell_size) as i32,
-        );
-        let entry = best_per_cell.entry(key).or_insert((i, speed));
-        if speed > entry.1 {
-            *entry = (i, speed);
+
+        for &(i, speed) in best_per_cell.values() {
+            let s = (speed / max_speed).clamp(0.0, 1.0).sqrt();
+            cache.arrows.push((i, s));
         }
     }
 
-    // 2) Рисуем по одному представителю из каждой ячейки сетки.
-    for &(i, speed) in best_per_cell.values() {
-        let wind = climate.winds_3d[i];
+    // Масштабируем длину стрелки от радиуса планеты, чтобы их всегда было отлично видно!
+    let r = world_config.radius;
+    let base_len = r * 0.08; // 8% от радиуса планеты для максимального ветра
+
+    // Каждый кадр просто рисуем уже готовые стрелки из кэша (работает мгновенно!)
+    for &(i, s) in &cache.arrows {
+        let wind_dir = climate.winds_3d[i].normalize_or_zero();
         let cell_dir = topology.cells[i].center;
         let h = geology.elevations[i].max(0.0);
-        let local_start = cell_dir * (world_config.radius + h + 0.04);
-        let local_end = local_start + wind * 0.18;
+
+        let local_start = cell_dir * (r + h + r * 0.015);
+        let arrow_len = base_len * (0.35 + 0.65 * s);
+        let local_end = local_start + wind_dir * arrow_len;
 
         let world_start = globe_transform.transform_point(local_start);
         let world_end = globe_transform.transform_point(local_end);
 
-        let s = (speed / max_speed).clamp(0.0, 1.0).sqrt();
-        let color = wind_speed_to_color(s).with_alpha(0.35 + 0.6 * s);
+        let color = wind_speed_to_color(s).with_alpha(0.45 + 0.55 * s);
         gizmos.arrow(world_start, world_end, color);
     }
 }

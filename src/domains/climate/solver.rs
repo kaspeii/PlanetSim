@@ -202,7 +202,11 @@ fn calc_radiative_sea_temp(
 
     // Инсоляция с учетом смещения зенита Солнца в текущем сезоне
     let base_insolation = (lat - sun_lat).cos().max(0.0);
-    let albedo_modifier = (1.0 - albedo) / (1.0 - config.land_albedo);
+    let albedo_modifier = if geology.elevations[i] <= 0.0 && albedo < config.land_albedo {
+        1.0 // Вся дополнительная поглощенная водой энергия уходит на испарение (будущую влажность), а не в кипяток!
+    } else {
+        (1.0 - albedo) / (1.0 - config.land_albedo)
+    };
     let effective_insolation = base_insolation * albedo_modifier;
 
     let raw_temp =
@@ -267,12 +271,16 @@ fn compute_season_pressure_and_winds(
     snap: &mut SeasonalSnapshot,
 ) {
     let num_cells = topology.cells.len();
+    let avg_hex_rad = (4.0 * std::f32::consts::PI / num_cells as f32).sqrt();
 
-    // 1. Термическая аномалия (и над сушей, и над океаном, где ветра нагнали тепло/холод!)
+    // 1. Считаем среднюю температуру ОКЕАНА как эталон для каждой широты.
+    // Именно разница между сушей и водой создает муссоны и барические центры!
     let mut thermal_field = vec![0.0_f32; num_cells];
     for i in 0..num_cells {
         let lat = topology.cells[i].lat_lon.x;
+        let c = continentality[i]; // -1.0 (океан) .. +1.0 (суша)
         let elev = geology.elevations[i];
+
         let mountain_height = elevation_cooling(
             elev,
             config.mountain_base_level,
@@ -280,40 +288,75 @@ fn compute_season_pressure_and_winds(
         );
         let sea_level_temp = snap.temperatures[i] + mountain_height * config.altitude_lapse_rate;
 
-        // Сравниваем температуру клетки со средней нормой на этой широте
-        let annual_insolation = lat.cos().max(0.0);
-        let expected_lat_temp =
-            config.pole_temp + (config.equator_temp - config.pole_temp) * annual_insolation;
+        // Эталонная температура открытого океана на данной широте (с учетом его термоинерции)
+        let annual_lat_insolation = lat.cos().max(0.0);
+        let ocean_lat_baseline = config.pole_temp
+            + (config.equator_temp - config.pole_temp) * annual_lat_insolation * 0.85;
+        let global_avg = (config.equator_temp + config.pole_temp) / 2.0;
+        let ocean_ref_temp = ocean_lat_baseline * 0.65 + global_avg * 0.35;
 
-        let temp_anomaly = (sea_level_temp - expected_lat_temp) / 14.0;
-        // Над сушей термические барические центры сильнее (1.0), над океаном мягче (0.35), но они ЕСТЬ!
-        // Это создает прибрежные барические ложбины, которые закручивают ветра у кромки льда!
-        let c = continentality[i];
-        let surface_mult = 0.35 + 0.65 * smoothstep((c + 0.3) / 1.3);
-        thermal_field[i] = (-temp_anomaly * surface_mult).clamp(-1.5, 1.5);
+        // Насколько данная клетка теплее или холоднее океана на этой же широте:
+        // Даже весной в тропиках суша теплее океана (низкое давление), а в Сибири холоднее (высокое)!
+        let temp_diff = (sea_level_temp - ocean_ref_temp) / 12.0;
+
+        // Над сушей (c > 0) термический эффект работает в полную силу,
+        // над океаном (c < 0) реагирует только на теплые/холодные ветровые течения и лед (слабее)
+        let weight = if c >= 0.0 { 0.4 + 0.6 * c } else { 0.4 * (1.0 + c * 0.6) };
+        thermal_field[i] = (-temp_diff * weight).clamp(-1.2, 1.2);
     }
 
-    // 2. Сглаживание термического поля
-    for _ in 0..15 {
-        let prev = thermal_field.clone();
+    // 2. Сглаживаем термическое поле (20 итераций), чтобы получить широкие мягкие вихри
+    let mut prev_thermal = vec![0.0_f32; num_cells];
+
+    for _ in 0..20 {
+        std::mem::swap(&mut thermal_field, &mut prev_thermal);
         for i in 0..num_cells {
             let neighbors = &topology.cells[i].neighbors;
-            let sum: f32 = neighbors.iter().map(|&n| prev[n]).sum();
-            thermal_field[i] = prev[i] * 0.3 + (sum / neighbors.len() as f32) * 0.7;
+            if neighbors.is_empty() { continue; }
+            let sum: f32 = neighbors.iter().map(|&n| prev_thermal[n]).sum();
+            thermal_field[i] = prev_thermal[i] * 0.3 + (sum / neighbors.len() as f32) * 0.7;
         }
     }
 
-    // 3. Итоговое давление
+    // 3. Собираем итоговое давление (Широтные пояса + Океанические ядра + Термические центры)
     for i in 0..num_cells {
         let lat = topology.cells[i].lat_lon.x;
+        let lon = topology.cells[i].lat_lon.y;
+        let c = continentality[i];
         let belt_lat = lat - sun_lat * 0.55;
-        let belt_pressure = -(6.0 * belt_lat).cos();
+        
+        let polar_damping = 0.5 + 0.5 * lat.cos();
+        let base_belt = -(6.0 * belt_lat).cos() * polar_damping;
 
-        snap.pressure[i] = belt_pressure * config.latitudinal_pressure_weight
+        // В океане (c < 0) фокусируем пояса в замкнутые круглые ядра вдали от берегов
+        // и добавляем планетарную волну Россби (3 волны на круг по долготе),
+        // чтобы в огромном океане рождались отдельные циклоны и антициклоны!
+        let belt_envelope = if c < 0.0 {
+            let ocean_core = smoothstep(-c); // от 0.0 у берега до 1.0 в центре океана
+            let rossby_wave = 1.0 + 0.35 * (3.0 * lon + belt_lat * 2.0).cos() * lat.sin().abs();
+            (0.55 + 0.85 * ocean_core) * rossby_wave
+        } else {
+            // На суше зональные пояса быстро уступают место термическим муссонам
+            1.0 - 0.65 * smoothstep(c)
+        };
+
+        snap.pressure[i] = base_belt * belt_envelope * config.latitudinal_pressure_weight
             + thermal_field[i] * config.thermal_pressure_weight;
     }
 
-    // 4. Векторы ветров
+    let mut prev_pressure = vec![0.0_f32; num_cells];
+
+    for _ in 0..8 {
+        std::mem::swap(&mut snap.pressure, &mut prev_pressure);
+        for i in 0..num_cells {
+            let neighbors = &topology.cells[i].neighbors;
+            if neighbors.is_empty() { continue; }
+            let sum: f32 = neighbors.iter().map(|&n| prev_pressure[n]).sum();
+            snap.pressure[i] = prev_pressure[i] * 0.3 + (sum / neighbors.len() as f32) * 0.7;
+        }
+    }
+
+    // 4. Векторы ветров: ЕДИНЫЙ ФИЗИЧНЫЙ ГРАДИЕНТ прямо из карты давления!
     for i in 0..num_cells {
         let cell = &topology.cells[i];
         let pos = cell.center;
@@ -323,50 +366,71 @@ fn compute_season_pressure_and_winds(
         let east = Vec3::Y.cross(pos).normalize_or_zero();
         let north = pos.cross(east).normalize_or_zero();
 
-        let belt_lat = lat - sun_lat * 0.55;
-        let belt_force_north = -(6.0 * belt_lat).sin() * config.latitudinal_pressure_weight * 0.35;
-        let belt_grad_3d = north * belt_force_north;
-
-        let my_therm = thermal_field[i];
-        let mut therm_grad_3d = Vec3::ZERO;
-        let mut avg_step_dist = 0.001_f32;
+        let my_p = snap.pressure[i];
+        let mut grad_3d = Vec3::ZERO;
+        let avg_step_dist = avg_hex_rad;
 
         for &n_id in &cell.neighbors {
             let n_pos = topology.cells[n_id].center;
             let raw_dir = n_pos - pos;
-            let dist = raw_dir.length().max(0.0001);
-            avg_step_dist += dist;
 
             let tangent_dir = (raw_dir - pos * raw_dir.dot(pos)).normalize_or_zero();
-            let diff = (my_therm - thermal_field[n_id]) / dist;
-            therm_grad_3d += tangent_dir * diff;
+            
+            // ВАЖНО: умножаем на (avg_hex_rad / dist) вместо деления на микроскопический dist!
+            // Это гарантирует, что стрелки НИКОГДА не взорвутся и не улетят в космос!
+            let safe_dist = raw_dir.length().max(avg_hex_rad * 0.3);
+            let diff = (my_p - snap.pressure[n_id]) / safe_dist;
+            grad_3d += tangent_dir * diff;
         }
 
         if !cell.neighbors.is_empty() {
             let count = cell.neighbors.len() as f32;
-            therm_grad_3d = (therm_grad_3d / count) * config.thermal_pressure_weight * 0.12;
-            avg_step_dist /= count;
+            grad_3d = (grad_3d / count) * 0.22;
         }
 
-        let total_grad_3d = belt_grad_3d + therm_grad_3d;
-
+        // Поворот Кориолиса (вблизи полюсов плавно ограничиваем, чтобы не крутило "бублик")
         let coriolis_angle = -lat.sin() * config.coriolis_strength;
         let coriolis_rot = Quat::from_axis_angle(pos, coriolis_angle);
-        let mut wind_3d = coriolis_rot * total_grad_3d;
+        let mut wind_3d = coriolis_rot * grad_3d;
 
+        // Орографический барьер (горы тормозят ветер и заставляют его огибать склоны)
         let mut mountain_drag = 0.0;
+        let mut mutupslope_grad = Vec3::ZERO;
+        let wind_dir = wind_3d.normalize_or_zero();
+
         for &n_id in &cell.neighbors {
             let n_pos = topology.cells[n_id].center;
-            let to_neighbor = (n_pos - pos).normalize_or_zero();
-            let alignment = wind_3d.normalize_or_zero().dot(to_neighbor);
-            if alignment > 0.0 {
-                let n_elev = geology.elevations[n_id].max(0.0);
-                let slope = ((n_elev - my_elev).max(0.0)) / avg_step_dist;
-                mountain_drag += slope * alignment;
+            let raw_dir = n_pos - pos;
+            let to_neighbor = (raw_dir - pos * raw_dir.dot(pos)).normalize_or_zero();
+            
+            let n_elev = geology.elevations[n_id].max(0.0);
+            let elev_diff = n_elev - my_elev;
+
+            // Градиент подъема рельефа в касательной плоскости
+            if elev_diff > 0.0 {
+                let slope = elev_diff / avg_step_dist;
+                mutupslope_grad += to_neighbor * slope;
+
+                let alignment = wind_dir.dot(to_neighbor);
+                if alignment > 0.0 {
+                    mountain_drag += slope * alignment;
+                }
             }
         }
 
-        let barrier_factor = 1.0 / (1.0 + mountain_drag * config.mountain_wind_barrier * 0.15);
+        // А) Огибание хребта: вычитаем часть компоненты ветра, бьющей прямо в крутой склон
+        if mutupslope_grad.length_squared() > 1e-6 {
+            let slope_normal = mutupslope_grad.normalize();
+            let into_wall = wind_3d.dot(slope_normal).max(0.0);
+            let deflect_strength = (mutupslope_grad.length() * 0.35).clamp(0.0, 0.75);
+            wind_3d -= slope_normal * (into_wall * deflect_strength);
+        }
+
+        // Б) Базовое трение о высокогорье (чтобы на плоских плато ветер не разгонялся как в океане)
+        let plateau_roughness = (my_elev - config.mountain_base_level).max(0.0) * 2.5;
+        let total_drag = mountain_drag + plateau_roughness;
+
+        let barrier_factor = 1.0 / (1.0 + total_drag * config.mountain_wind_barrier * 0.15);
         wind_3d = wind_3d * barrier_factor * config.wind_speed_multiplier;
 
         snap.winds_3d[i] = wind_3d;
