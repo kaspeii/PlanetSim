@@ -455,15 +455,10 @@ pub fn draw_climate_tab(
 
     ui.separator();
     ui.checkbox(&mut config.show_wind_arrows, "Показать 3D-стрелки ветров");
-    if ui
-        .checkbox(
+    ui.checkbox(
             &mut config.show_ocean_currents,
             "Показать 3D-стрелки течений",
-        )
-        .changed()
-    {
-        pipeline.rebuild_mesh = true;
-    }
+        );
 
     if sim_changed {
         pipeline.regenerate_climate = true;

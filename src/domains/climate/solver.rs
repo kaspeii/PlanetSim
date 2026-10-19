@@ -115,7 +115,7 @@ fn simulate_single_season(
         compute_season_pressure_and_winds(sun_lat, topology, geology, continentality, config, snap);
 
         // Б) Генерируем океанические течения на основе новых ветров
-        compute_ocean_currents(topology, geology, config, snap);
+        compute_ocean_currents(topology, geology, continentality, config, snap);
 
         // В) Океаническая адвекция: течения взламывают льды
         let mut ocean_temps = sea_level_temps.clone();
@@ -156,7 +156,9 @@ fn simulate_single_season(
 
                 if weight_sum > 0.0 {
                     let incoming = upwind_sum / weight_sum;
-                    let step_rate = (speed * config.ocean_advection_rate).clamp(0.0, 0.95);
+                    let ref_current_speed = (1.5 * config.ocean_current_speed_multiplier).max(0.05);
+                    let norm_speed = (speed / ref_current_speed).clamp(0.0, 1.0);
+                    let step_rate = norm_speed * config.ocean_advection_rate.min(0.85);
                     ocean_temps[i] = prev_ocean[i] * (1.0 - step_rate) + incoming * step_rate;
                 } else {
                     ocean_temps[i] = prev_ocean[i];
@@ -209,7 +211,9 @@ fn simulate_single_season(
         }
 
         // Д) Радиационный баланс: смешиваем принесенный ветром воздух с локальным нагревом Солнца
-        let blend = (config.heat_advection_strength * 0.55).clamp(0.0, 0.85);
+        let air_blend = (config.heat_advection_strength * 0.55).clamp(0.0, 0.85);
+        let ocean_blend = config.ocean_advection_rate.clamp(0.0, 0.85);
+
         for i in 0..num_cells {
             let rad_temp = calc_radiative_sea_temp(
                 i,
@@ -220,9 +224,17 @@ fn simulate_single_season(
                 config,
                 geology,
             );
-            sea_level_temps[i] = rad_temp * (1.0 - blend) + advected_temps[i] * blend;
-
             let elev = geology.elevations[i];
+
+            if elev <= 0.0 {
+                // В океане главную роль играет теплоемкость воды (ocean_temps) и немного воздух (advected_temps)
+                let transported_water_temp = ocean_temps[i] * 0.8 + advected_temps[i] * 0.2;
+                sea_level_temps[i] = rad_temp * (1.0 - ocean_blend) + transported_water_temp * ocean_blend;
+            } else {
+                // На суше работает воздушная адвекция ветрами
+                sea_level_temps[i] = rad_temp * (1.0 - air_blend) + advected_temps[i] * air_blend;
+            }
+
             let mountain_height = elevation_cooling(
                 elev,
                 config.mountain_base_level,
@@ -237,7 +249,7 @@ fn simulate_single_season(
     // Финальная синхронизация давления и ветров
     compute_season_pressure_and_winds(sun_lat, topology, geology, continentality, config, snap);
     // Финальный проход течений для отрисовки
-    compute_ocean_currents(topology, geology, config, snap);
+    compute_ocean_currents(topology, geology, continentality, config, snap);
 }
 
 fn calc_radiative_sea_temp(
@@ -264,13 +276,13 @@ fn calc_radiative_sea_temp(
         config.pole_temp + (config.equator_temp - config.pole_temp) * effective_insolation;
 
     let c = continentality[i]; // -1..+1
-    // Океан (c < 0): moderation выше базовой (открытый океан стабильнее)
-    // Суша (c > 0): moderation падает до 0
+    let r = config.marginal_sea_moderation_reduction;
     let moderation = if c < 0.0 {
-        let reduction = config.marginal_sea_moderation_reduction;
-        config.base_ocean_moderation * (1.0 - reduction * c.abs())
+        // open ocean (|c|=1) → reduction=0, coastal (|c|=0) → reduction
+        config.base_ocean_moderation * (1.0 - r * (1.0 - c.abs()))
     } else {
-        config.base_ocean_moderation * (1.0 - c)
+        // чтобы не было разрыва на c=0, умножим на (1-r) при c=0
+        config.base_ocean_moderation * (1.0 - r) * (1.0 - c)
     };
 
     // ВАЖНО: Океан обладает термоинерцией и сопротивляется резким сезонным скачкам,
@@ -453,7 +465,7 @@ fn compute_season_pressure_and_winds(
 
         // Орографический барьер (горы тормозят ветер и заставляют его огибать склоны)
         let mut mountain_drag = 0.0;
-        let mut mutupslope_grad = Vec3::ZERO;
+        let mut upslope_grad = Vec3::ZERO;
         let wind_dir = wind_3d.normalize_or_zero();
 
         for &n_id in &cell.neighbors {
@@ -467,7 +479,7 @@ fn compute_season_pressure_and_winds(
             // Градиент подъема рельефа в касательной плоскости
             if elev_diff > 0.0 {
                 let slope = elev_diff / avg_step_dist;
-                mutupslope_grad += to_neighbor * slope;
+                upslope_grad += to_neighbor * slope;
 
                 let alignment = wind_dir.dot(to_neighbor);
                 if alignment > 0.0 {
@@ -477,10 +489,10 @@ fn compute_season_pressure_and_winds(
         }
 
         // А) Огибание хребта: вычитаем часть компоненты ветра, бьющей прямо в крутой склон
-        if mutupslope_grad.length_squared() > 1e-6 {
-            let slope_normal = mutupslope_grad.normalize();
+        if upslope_grad.length_squared() > 1e-6 {
+            let slope_normal = upslope_grad.normalize();
             let into_wall = wind_3d.dot(slope_normal).max(0.0);
-            let deflect_strength = (mutupslope_grad.length() * 0.35).clamp(0.0, 0.75);
+            let deflect_strength = (upslope_grad.length() * 0.35).clamp(0.0, 0.75);
             wind_3d -= slope_normal * (into_wall * deflect_strength);
         }
 
@@ -605,6 +617,7 @@ fn compute_continentality(
 fn compute_ocean_currents(
     topology: &WorldTopology,
     geology: &GeologyLayer,
+    continentality: &[f32],
     config: &ClimateConfig,
     snap: &mut SeasonalSnapshot,
 ) {
@@ -633,22 +646,37 @@ fn compute_ocean_currents(
         let mut coast_normal = Vec3::ZERO;
         for &n_id in &cell.neighbors {
             if geology.elevations[n_id] > 0.0 {
-                // Вектор ОТ берега К воде
-                let from_coast = (pos - topology.cells[n_id].center).normalize_or_zero();
-                coast_normal += from_coast;
+                let raw_dir = pos - topology.cells[n_id].center;
+                // Проецируем нормаль берега строго в касательную плоскость сферы
+                let tangent_from_coast = (raw_dir - pos * raw_dir.dot(pos)).normalize_or_zero();
+                coast_normal += tangent_from_coast;
             }
         }
 
-        if coast_normal.length_squared() > 1e-6 {
+        let orig_speed = current_3d.length();
+        if coast_normal.length_squared() > 1e-6 && orig_speed > 1e-5 {
             coast_normal = coast_normal.normalize();
-            let into_coast = current_3d.dot(-coast_normal); // насколько течение бьет прямо в сушу
+            let into_coast = current_3d.dot(-coast_normal); // проекция удара в берег
 
             if into_coast > 0.0 {
-                // Вода не может течь в сушу: убираем лобовую компоненту
-                current_3d += coast_normal * into_coast;
-                // Параллельная компонента ускоряется (имитация западных пограничных течений)
-                current_3d *= config.boundary_current_multiplier;
+                let impact_ratio = (into_coast / orig_speed).clamp(0.0, 1.0);
+                // Убираем компоненту, бьющую в сушу
+                let mut along_coast = current_3d + coast_normal * into_coast;
+                
+                // Восстанавливаем скорость потока (вода не исчезает при ударе в берег, а поворачивает вдоль него)
+                if along_coast.length_squared() > 1e-8 {
+                    along_coast = along_coast.normalize() * orig_speed;
+                }
+                
+                // Плавное ускорение пограничного течения пропорционально углу натекания
+                let boost = 1.0 + (config.boundary_current_multiplier - 1.0) * impact_ratio;
+                current_3d = along_coast * boost;
             }
+        } else {
+            // Мягкая поддержка скорости струи в прибрежной зоне (на 2-3 гекса от берега),
+            // где continentality близка к 0.0
+            let coastal_proximity = (1.0 - continentality[i].abs() * 3.0).clamp(0.0, 1.0);
+            current_3d *= 1.0 + (config.boundary_current_multiplier - 1.0) * 0.35 * coastal_proximity;
         }
 
         snap.ocean_currents[i] = current_3d;
