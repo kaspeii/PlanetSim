@@ -47,12 +47,21 @@ pub struct ClimateConfig {
     /// Какой из трех предрассчитанных сезонов сейчас показывать на глобусе
     pub active_season: ClimateSeason,
 
-    pub ocean_continentality_scale: f32,  // расстояние в клетках, где океан считается «полностью открытым». Рекомендую 10–15
-    pub land_continentality_scale: f32,   // расстояние, где суша считается «полностью континентальной». Рекомендую 15–25
-    pub marginal_sea_moderation_reduction: f32,  // 0.0 = отключить эффект маргинальных морей, 0.15 = мягкий, 0.3 = сильный. Рекомендую 0.15
+    pub ocean_continentality_scale: f32, // расстояние в клетках, где океан считается «полностью открытым». Рекомендую 10–15
+    pub land_continentality_scale: f32, // расстояние, где суша считается «полностью континентальной». Рекомендую 15–25
+    pub marginal_sea_moderation_reduction: f32, // 0.0 = отключить эффект маргинальных морей, 0.15 = мягкий, 0.3 = сильный. Рекомендую 0.15
 
-    pub mountain_base_level: f32,   // бывший магический 0.08; предлагаю 0.10
-    pub mountain_blend_width: f32,  // ширина мягкого порога; напр. 0.02
+    pub mountain_base_level: f32, // бывший магический 0.08; предлагаю 0.10
+    pub mountain_blend_width: f32, // ширина мягкого порога; напр. 0.02
+
+    /// Базовый множитель скорости течений относительно ветра
+    pub ocean_current_speed_multiplier: f32,
+    /// Насколько сильно течения ускоряются вдоль берегов (эффект Гольфстрима)
+    pub boundary_current_multiplier: f32,
+    /// Сила переноса тепла именно толщей воды (высокая термоинерция)
+    pub ocean_advection_rate: f32,
+    /// Показывать 3D-стрелки течений
+    pub show_ocean_currents: bool,
 }
 
 impl Default for ClimateConfig {
@@ -83,13 +92,17 @@ impl Default for ClimateConfig {
             axial_tilt: 0.41,
             active_season: ClimateSeason::Spring, // По умолчанию отображаем Весну
 
-            ocean_continentality_scale: 0.35,  // расстояние в клетках, где океан считается «полностью открытым».
-            land_continentality_scale: 0.45,   // расстояние, где суша считается «полностью континентальной».
-            marginal_sea_moderation_reduction: 0.20,  // 0.0 = отключить эффект маргинальных морей, 0.15 = мягкий, 0.3 = сильный. Рекомендую 0.15
+            ocean_continentality_scale: 0.35, // расстояние в клетках, где океан считается «полностью открытым».
+            land_continentality_scale: 0.45, // расстояние, где суша считается «полностью континентальной».
+            marginal_sea_moderation_reduction: 0.20, // 0.0 = отключить эффект маргинальных морей, 0.15 = мягкий, 0.3 = сильный. Рекомендую 0.15
 
-            mountain_base_level: 0.1,   // бывший магический 0.08; предлагаю 0.10
-            mountain_blend_width: 0.02,  // ширина мягкого порога; напр. 0.02
-            
+            mountain_base_level: 0.1, // бывший магический 0.08; предлагаю 0.10
+            mountain_blend_width: 0.02, // ширина мягкого порога; напр. 0.02
+
+            ocean_current_speed_multiplier: 0.15, // Вода плотнее, течёт медленнее ветра
+            boundary_current_multiplier: 2.5,     // Сильное ускорение у берегов
+            ocean_advection_rate: 0.90,           // Океан отлично сохраняет и переносит тепло
+            show_ocean_currents: false,
         }
     }
 }

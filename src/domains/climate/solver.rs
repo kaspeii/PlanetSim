@@ -112,17 +112,66 @@ fn simulate_single_season(
     let iterations = config.equilibrium_iterations.max(1);
     for _ in 0..iterations {
         // А) Считаем давление и ветра для текущего распределения температур
-        compute_season_pressure_and_winds(
-            sun_lat,
-            topology,
-            geology,
-            continentality,
-            config,
-            snap,
-        );
+        compute_season_pressure_and_winds(sun_lat, topology, geology, continentality, config, snap);
 
-        // Б) Дальнобойный перенос тепла ветрами (25 шагов чистой адвекции без гашения!).
-        // Это позволяет ветрам с материков и теплых морей реально пробивать вглубь океана и ломать круг льда!
+        // Б) Генерируем океанические течения на основе новых ветров
+        compute_ocean_currents(topology, geology, config, snap);
+
+        // В) Океаническая адвекция: течения взламывают льды
+        let mut ocean_temps = sea_level_temps.clone();
+        let mut prev_ocean = vec![0.0_f32; num_cells];
+        for _ in 0..15 {
+            std::mem::swap(&mut ocean_temps, &mut prev_ocean);
+            for i in 0..num_cells {
+                if geology.elevations[i] > 0.0 {
+                    ocean_temps[i] = prev_ocean[i];
+                    continue;
+                }
+
+                let current = snap.ocean_currents[i];
+                let speed = current.length();
+                if speed < 0.001 {
+                    ocean_temps[i] = prev_ocean[i];
+                    continue;
+                }
+
+                let dir = current / speed;
+                let mut upwind_sum = 0.0;
+                let mut weight_sum = 0.0;
+
+                for &n_id in &topology.cells[i].neighbors {
+                    if geology.elevations[n_id] > 0.0 {
+                        continue;
+                    } // Тепло не течёт с суши
+
+                    let from_neighbor = (topology.cells[i].center - topology.cells[n_id].center)
+                        .normalize_or_zero();
+                    let alignment = from_neighbor.dot(dir);
+                    if alignment > 0.0 {
+                        let w = alignment * alignment;
+                        upwind_sum += prev_ocean[n_id] * w;
+                        weight_sum += w;
+                    }
+                }
+
+                if weight_sum > 0.0 {
+                    let incoming = upwind_sum / weight_sum;
+                    let step_rate = (speed * config.ocean_advection_rate).clamp(0.0, 0.95);
+                    ocean_temps[i] = prev_ocean[i] * (1.0 - step_rate) + incoming * step_rate;
+                } else {
+                    ocean_temps[i] = prev_ocean[i];
+                }
+            }
+        }
+
+        // Фиксируем тепло океана в базовой температуре перед воздушной адвекцией
+        for i in 0..num_cells {
+            if geology.elevations[i] <= 0.0 {
+                sea_level_temps[i] = sea_level_temps[i] * 0.25 + ocean_temps[i] * 0.75;
+            }
+        }
+
+        // Г) Дальнобойный перенос тепла ветрами (воздух над сушей и морем)
         let mut advected_temps = sea_level_temps.clone();
         let mut prev_temps = vec![0.0_f32; num_cells];
         for _ in 0..25 {
@@ -145,7 +194,6 @@ fn simulate_single_season(
                         (cell.center - topology.cells[n_id].center).normalize_or_zero();
                     let alignment = from_neighbor.dot(wind_dir);
                     if alignment > 0.0 {
-                        // Возводим в квадрат для направленного струйного переноса без бокового размытия
                         let w = alignment * alignment;
                         upwind_sum += prev_temps[n_id] * w;
                         weight_sum += w;
@@ -160,7 +208,7 @@ fn simulate_single_season(
             }
         }
 
-        // В) Радиационный баланс: смешиваем принесенный ветром воздух с локальным нагревом Солнца
+        // Д) Радиационный баланс: смешиваем принесенный ветром воздух с локальным нагревом Солнца
         let blend = (config.heat_advection_strength * 0.55).clamp(0.0, 0.85);
         for i in 0..num_cells {
             let rad_temp = calc_radiative_sea_temp(
@@ -188,6 +236,8 @@ fn simulate_single_season(
 
     // Финальная синхронизация давления и ветров
     compute_season_pressure_and_winds(sun_lat, topology, geology, continentality, config, snap);
+    // Финальный проход течений для отрисовки
+    compute_ocean_currents(topology, geology, config, snap);
 }
 
 fn calc_radiative_sea_temp(
@@ -227,8 +277,8 @@ fn calc_radiative_sea_temp(
     // но на самой широте остается теплым на экваторе и холодным у полюсов (годовая норма широты),
     // а не стягивает всю планету к +1°C!
     let annual_lat_insolation = lat.cos().max(0.0);
-    let ocean_lat_baseline = config.pole_temp
-        + (config.equator_temp - config.pole_temp) * annual_lat_insolation * 0.85;
+    let ocean_lat_baseline =
+        config.pole_temp + (config.equator_temp - config.pole_temp) * annual_lat_insolation * 0.85;
     let global_avg = (config.equator_temp + config.pole_temp) / 2.0;
     let ocean_equilibrium = ocean_lat_baseline * 0.82 + global_avg * 0.18;
 
@@ -300,7 +350,11 @@ fn compute_season_pressure_and_winds(
 
         // Над сушей (c > 0) термический эффект работает в полную силу,
         // над океаном (c < 0) реагирует только на теплые/холодные ветровые течения и лед (слабее)
-        let weight = if c >= 0.0 { 0.4 + 0.6 * c } else { 0.4 * (1.0 + c * 0.6) };
+        let weight = if c >= 0.0 {
+            0.4 + 0.6 * c
+        } else {
+            0.4 * (1.0 + c * 0.6)
+        };
         thermal_field[i] = (-temp_diff * weight).clamp(-1.2, 1.2);
     }
 
@@ -311,7 +365,9 @@ fn compute_season_pressure_and_winds(
         std::mem::swap(&mut thermal_field, &mut prev_thermal);
         for i in 0..num_cells {
             let neighbors = &topology.cells[i].neighbors;
-            if neighbors.is_empty() { continue; }
+            if neighbors.is_empty() {
+                continue;
+            }
             let sum: f32 = neighbors.iter().map(|&n| prev_thermal[n]).sum();
             thermal_field[i] = prev_thermal[i] * 0.3 + (sum / neighbors.len() as f32) * 0.7;
         }
@@ -323,7 +379,7 @@ fn compute_season_pressure_and_winds(
         let lon = topology.cells[i].lat_lon.y;
         let c = continentality[i];
         let belt_lat = lat - sun_lat * 0.55;
-        
+
         let polar_damping = 0.5 + 0.5 * lat.cos();
         let base_belt = -(6.0 * belt_lat).cos() * polar_damping;
 
@@ -332,7 +388,8 @@ fn compute_season_pressure_and_winds(
         // чтобы в огромном океане рождались отдельные циклоны и антициклоны!
         let belt_envelope = if c < 0.0 {
             let ocean_core = smoothstep(-c); // от 0.0 у берега до 1.0 в центре океана
-            let rossby_wave = 1.0 + 0.35 * (3.0 * lon + belt_lat * 2.0).cos() * (lat * 2.0).sin().abs();
+            let rossby_wave =
+                1.0 + 0.35 * (3.0 * lon + belt_lat * 2.0).cos() * (lat * 2.0).sin().abs();
             (0.55 + 0.85 * ocean_core) * rossby_wave
         } else {
             // На суше зональные пояса быстро уступают место термическим муссонам
@@ -349,7 +406,9 @@ fn compute_season_pressure_and_winds(
         std::mem::swap(&mut snap.pressure, &mut prev_pressure);
         for i in 0..num_cells {
             let neighbors = &topology.cells[i].neighbors;
-            if neighbors.is_empty() { continue; }
+            if neighbors.is_empty() {
+                continue;
+            }
             let sum: f32 = neighbors.iter().map(|&n| prev_pressure[n]).sum();
             snap.pressure[i] = prev_pressure[i] * 0.3 + (sum / neighbors.len() as f32) * 0.7;
         }
@@ -374,7 +433,7 @@ fn compute_season_pressure_and_winds(
             let raw_dir = n_pos - pos;
 
             let tangent_dir = (raw_dir - pos * raw_dir.dot(pos)).normalize_or_zero();
-            
+
             // ВАЖНО: умножаем на (avg_hex_rad / dist) вместо деления на микроскопический dist!
             // Это гарантирует, что стрелки НИКОГДА не взорвутся и не улетят в космос!
             let safe_dist = raw_dir.length().max(avg_hex_rad * 0.3);
@@ -401,7 +460,7 @@ fn compute_season_pressure_and_winds(
             let n_pos = topology.cells[n_id].center;
             let raw_dir = n_pos - pos;
             let to_neighbor = (raw_dir - pos * raw_dir.dot(pos)).normalize_or_zero();
-            
+
             let n_elev = geology.elevations[n_id].max(0.0);
             let elev_diff = n_elev - my_elev;
 
@@ -538,7 +597,60 @@ fn compute_continentality(
         } else {
             let physical_dist = dist_to_ocean[i] as f32 * avg_hex_rad;
             let norm = (physical_dist / config.land_continentality_scale).min(1.0);
-            smoothstep(norm)  // 0 на островах и пляжах, +1 в глубине материка
+            smoothstep(norm) // 0 на островах и пляжах, +1 в глубине материка
         };
+    }
+}
+
+fn compute_ocean_currents(
+    topology: &WorldTopology,
+    geology: &GeologyLayer,
+    config: &ClimateConfig,
+    snap: &mut SeasonalSnapshot,
+) {
+    let num_cells = topology.cells.len();
+
+    for i in 0..num_cells {
+        // Течения существуют только в воде
+        if geology.elevations[i] > 0.0 {
+            snap.ocean_currents[i] = Vec3::ZERO;
+            continue;
+        }
+
+        let cell = &topology.cells[i];
+        let pos = cell.center;
+        let lat = cell.lat_lon.x;
+
+        // 1. Течение подхватывается ветром
+        let mut current_3d = snap.winds_3d[i] * config.ocean_current_speed_multiplier;
+
+        // 2. Спираль Экмана: из-за плотности воды Кориолис отклоняет течения сильнее ветра (до ~45 градусов)
+        let ekman_angle = -lat.sin() * 0.75;
+        let ekman_rot = Quat::from_axis_angle(pos, ekman_angle);
+        current_3d = ekman_rot * current_3d;
+
+        // 3. Граничные течения (Отклонение от берегов)
+        let mut coast_normal = Vec3::ZERO;
+        for &n_id in &cell.neighbors {
+            if geology.elevations[n_id] > 0.0 {
+                // Вектор ОТ берега К воде
+                let from_coast = (pos - topology.cells[n_id].center).normalize_or_zero();
+                coast_normal += from_coast;
+            }
+        }
+
+        if coast_normal.length_squared() > 1e-6 {
+            coast_normal = coast_normal.normalize();
+            let into_coast = current_3d.dot(-coast_normal); // насколько течение бьет прямо в сушу
+
+            if into_coast > 0.0 {
+                // Вода не может течь в сушу: убираем лобовую компоненту
+                current_3d += coast_normal * into_coast;
+                // Параллельная компонента ускоряется (имитация западных пограничных течений)
+                current_3d *= config.boundary_current_multiplier;
+            }
+        }
+
+        snap.ocean_currents[i] = current_3d;
     }
 }

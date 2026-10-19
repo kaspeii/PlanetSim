@@ -5,8 +5,11 @@ use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 
 use crate::{
     domains::{
-        climate::{config::ClimateConfig, data::ClimateLayer, ui::draw_climate_tab}, tectonics::{config::TectonicsConfig, ui::draw_tectonics_tab},
-    }, viewport::MapOverlay, world::pipeline::WorldPipeline,
+        climate::{config::ClimateConfig, data::ClimateLayer, ui::draw_climate_tab},
+        tectonics::{config::TectonicsConfig, ui::draw_tectonics_tab},
+    },
+    viewport::MapOverlay,
+    world::pipeline::WorldPipeline,
 };
 
 #[derive(Resource, Default, PartialEq)]
@@ -36,7 +39,7 @@ fn render_ui_shell(
     mut active_tab: ResMut<ActiveTab>,
     mut tectonics_config: ResMut<TectonicsConfig>,
     mut climate_config: ResMut<ClimateConfig>,
-    mut climate: ResMut<ClimateLayer>, 
+    mut climate: ResMut<ClimateLayer>,
     mut pipeline: ResMut<WorldPipeline>,
     mut overlay: ResMut<MapOverlay>,
 ) -> Result {
@@ -107,7 +110,7 @@ fn render_ui_shell(
                         .changed();
 
                     changed |= ui
-                        .radio_value(&mut *overlay, MapOverlay::Pressure, "Ячейки давления")
+                        .radio_value(&mut *overlay, MapOverlay::Pressure, "Давление")
                         .changed();
 
                     changed |= ui

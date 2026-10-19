@@ -6,8 +6,8 @@ use crate::world::topology::WorldTopology;
 use bevy::math::{Quat, Vec3};
 use noise::NoiseFn;
 use rand::RngExt;
-use std::f32::consts::PI;
 use std::collections::VecDeque;
+use std::f32::consts::PI;
 
 fn smoothstep(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
@@ -183,7 +183,12 @@ pub fn simulate_tectonics(
             }
 
             h2 += calculate_boundary_elevation(
-                p1.plate_type, p2.plate_type, f2, convergence2, m_noise, config,
+                p1.plate_type,
+                p2.plate_type,
+                f2,
+                convergence2,
+                m_noise,
+                config,
             );
         }
 
@@ -202,7 +207,12 @@ pub fn simulate_tectonics(
             }
 
             h3 += calculate_boundary_elevation(
-                p1.plate_type, p3.plate_type, f3, convergence3, m_noise, config,
+                p1.plate_type,
+                p3.plate_type,
+                f3,
+                convergence3,
+                m_noise,
+                config,
             );
         }
 
@@ -261,7 +271,13 @@ pub fn simulate_tectonics(
     apply_oceanic_crust_cooling(topology, &mut geology.elevations, &ridge_cells, config);
 
     // Запускаем клеточный автомат для размытия острых ступенек пикселей
-    step_elevation_diffusion(topology, &mut geology.elevations, config.diffusion_strength, config.slope_erosion_factor, config.diffusion_max_strength,);
+    step_elevation_diffusion(
+        topology,
+        &mut geology.elevations,
+        config.diffusion_strength,
+        config.slope_erosion_factor,
+        config.diffusion_max_strength,
+    );
 }
 
 /// Находит ровно 3 ближайшие плиты к данной точке. Это необходимо для правильной интерполяции
@@ -439,11 +455,9 @@ pub fn step_elevation_diffusion(
             }
         }
 
-        let local_strength =
-            (strength + max_slope * slope_erosion_factor).min(max_strength);
+        let local_strength = (strength + max_slope * slope_erosion_factor).min(max_strength);
 
-        elevations[i] =
-            old_elevations[i] * (1.0 - local_strength) + avg_neighbor * local_strength;
+        elevations[i] = old_elevations[i] * (1.0 - local_strength) + avg_neighbor * local_strength;
     }
 }
 
@@ -467,9 +481,7 @@ fn apply_oceanic_crust_cooling(
     while let Some(cell_id) = queue.pop_front() {
         let current_dist = dist_from_ridge[cell_id];
         for &neighbor_id in &topology.cells[cell_id].neighbors {
-            if elevations[neighbor_id] <= 0.0
-                && dist_from_ridge[neighbor_id] > current_dist + 1
-            {
+            if elevations[neighbor_id] <= 0.0 && dist_from_ridge[neighbor_id] > current_dist + 1 {
                 dist_from_ridge[neighbor_id] = current_dist + 1;
                 queue.push_back(neighbor_id);
             }

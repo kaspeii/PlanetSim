@@ -14,7 +14,7 @@ use bevy::prelude::*;
 use config::ClimateConfig;
 use data::ClimateLayer;
 use solver::simulate_all_seasons;
-use ui::draw_wind_arrows_gizmos;
+use ui::{draw_ocean_currents_gizmos, draw_wind_arrows_gizmos};
 
 pub struct ClimatePlugin;
 
@@ -23,7 +23,10 @@ impl Plugin for ClimatePlugin {
         app.init_resource::<ClimateConfig>()
             .init_resource::<ClimateLayer>()
             .add_systems(Update, run_climate_pipeline.in_set(PipelineSet::Simulation))
-            .add_systems(Update, draw_wind_arrows_gizmos.in_set(PipelineSet::Render));
+            .add_systems(
+                Update,
+                (draw_wind_arrows_gizmos, draw_ocean_currents_gizmos).in_set(PipelineSet::Render),
+            );
     }
 }
 
