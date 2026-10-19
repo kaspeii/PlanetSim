@@ -52,6 +52,9 @@ pub struct ClimateConfig {
     pub ocean_continentality_scale: f32,  // расстояние в клетках, где океан считается «полностью открытым». Рекомендую 10–15
     pub land_continentality_scale: f32,   // расстояние, где суша считается «полностью континентальной». Рекомендую 15–25
     pub marginal_sea_moderation_reduction: f32,  // 0.0 = отключить эффект маргинальных морей, 0.15 = мягкий, 0.3 = сильный. Рекомендую 0.15
+
+    pub mountain_base_level: f32,   // бывший магический 0.08; предлагаю 0.10
+    pub mountain_blend_width: f32,  // ширина мягкого порога; напр. 0.02
 }
 
 impl Default for ClimateConfig {
@@ -83,9 +86,12 @@ impl Default for ClimateConfig {
             axial_tilt: 0.41,
             active_season: ClimateSeason::Spring, // По умолчанию отображаем Весну
 
-            ocean_continentality_scale: 15.0,  // расстояние в клетках, где океан считается «полностью открытым». Рекомендую 10–15
-            land_continentality_scale: 25.0,   // расстояние, где суша считается «полностью континентальной». Рекомендую 15–25
+            ocean_continentality_scale: 0.15,  // расстояние в клетках, где океан считается «полностью открытым». Рекомендую 10–15
+            land_continentality_scale: 0.45,   // расстояние, где суша считается «полностью континентальной». Рекомендую 15–25
             marginal_sea_moderation_reduction: 0.15,  // 0.0 = отключить эффект маргинальных морей, 0.15 = мягкий, 0.3 = сильный. Рекомендую 0.15
+
+            mountain_base_level: 0.1,   // бывший магический 0.08; предлагаю 0.10
+            mountain_blend_width: 0.02,  // ширина мягкого порога; напр. 0.02
             
         }
     }

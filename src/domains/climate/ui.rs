@@ -6,6 +6,8 @@ use crate::{
 };
 use bevy::prelude::*;
 use bevy_egui::egui;
+use std::collections::HashMap;
+
 
 pub fn build_temperature_colors(climate: &ClimateLayer) -> Vec<[f32; 4]> {
     climate
@@ -40,12 +42,39 @@ pub fn build_continentality_colors(climate: &ClimateLayer) -> Vec<[f32; 4]> {
         .continentality
         .iter()
         .map(|&c| {
-            // c ∈ [-1, +1] → val ∈ [0, 1]
-            // -1 (глубокий океан) → 0.0 (чёрный)
-            //  0 (берег)          → 0.5 (серый)
-            // +1 (глубина суши)  → 1.0 (белый)
-            let val = (c + 1.0) * 0.5;
-            Color::srgb(val, val, val).to_linear().to_f32_array()
+            let color = if c < 0.0 {
+                // ОКЕАН: c ∈ [-1.0 (открытый океан) .. 0.0 (берег/маргинальное море)]
+                // t = 0.0 у берега, t = 1.0 далеко в открытом океане
+                let t = (-c).clamp(0.0, 1.0);
+                // От светло-бирюзового у берегов (0.45, 0.78, 0.88) к глубокому синему (0.05, 0.15, 0.45)
+                Color::srgb(
+                    0.45 - 0.40 * t,
+                    0.78 - 0.63 * t,
+                    0.88 - 0.43 * t,
+                )
+            } else {
+                // СУША: c ∈ [0.0 (побережье) .. +1.0 (глубь материка)]
+                let t = c.clamp(0.0, 1.0);
+                // Двухступенчатый градиент суши:
+                // 0.0 .. 0.5: Светло-бежевый (0.92, 0.85, 0.68) -> Золотистая охра (0.85, 0.55, 0.30)
+                // 0.5 .. 1.0: Золотистая охра (0.85, 0.55, 0.30) -> Глубокий терракотово-бурый (0.48, 0.15, 0.10)
+                if t < 0.5 {
+                    let s = t * 2.0;
+                    Color::srgb(
+                        0.92 - 0.07 * s,
+                        0.85 - 0.30 * s,
+                        0.68 - 0.38 * s,
+                    )
+                } else {
+                    let s = (t - 0.5) * 2.0;
+                    Color::srgb(
+                        0.85 - 0.37 * s,
+                        0.55 - 0.40 * s,
+                        0.30 - 0.20 * s,
+                    )
+                }
+            };
+            color.to_linear().to_f32_array()
         })
         .collect()
 }
@@ -84,27 +113,32 @@ pub fn build_wind_colors(climate: &ClimateLayer) -> Vec<[f32; 4]> {
         .iter()
         .map(|&w| {
             let s = (w.length() / max_speed).clamp(0.0, 1.0).sqrt();
-            let color = match s {
-                x if x < 0.25 => {
-                    let t = x / 0.25;
-                    Color::srgb(0.08, 0.12 + 0.48 * t, 0.35 + 0.45 * t) // Темно-синий -> Голубой
-                }
-                x if x < 0.50 => {
-                    let t = (x - 0.25) / 0.25;
-                    Color::srgb(0.08 + 0.22 * t, 0.60 + 0.25 * t, 0.80 - 0.40 * t) // Голубой -> Зеленый
-                }
-                x if x < 0.75 => {
-                    let t = (x - 0.50) / 0.25;
-                    Color::srgb(0.30 + 0.65 * t, 0.85, 0.40 - 0.30 * t) // Зеленый -> Желтый
-                }
-                _ => {
-                    let t = (s - 0.75) / 0.25;
-                    Color::srgb(0.95, 0.85 - 0.70 * t, 0.10 + 0.30 * t) // Желтый -> Ярко-красный/Маджента
-                }
-            };
-            color.to_linear().to_f32_array()
+            wind_speed_to_color(s).to_linear().to_f32_array()
         })
         .collect()
+}
+
+/// Цвет ветра по нормированной силе [0..1]. Общий для меша и 3D-стрелок.
+fn wind_speed_to_color(s: f32) -> Color {
+    let s = s.clamp(0.0, 1.0);
+    match s {
+        x if x < 0.25 => {
+            let t = x / 0.25;
+            Color::srgb(0.08, 0.12 + 0.48 * t, 0.35 + 0.45 * t) // тёмно-синий → голубой
+        }
+        x if x < 0.50 => {
+            let t = (x - 0.25) / 0.25;
+            Color::srgb(0.08 + 0.22 * t, 0.60 + 0.25 * t, 0.80 - 0.40 * t) // голубой → зелёный
+        }
+        x if x < 0.75 => {
+            let t = (x - 0.50) / 0.25;
+            Color::srgb(0.30 + 0.65 * t, 0.85, 0.40 - 0.30 * t) // зелёный → жёлтый
+        }
+        _ => {
+            let t = (s - 0.75) / 0.25;
+            Color::srgb(0.95, 0.85 - 0.70 * t, 0.10 + 0.30 * t) // жёлтый → красный
+        }
+    }
 }
 
 /// Отрисовка 3D-стрелок ветра поверх глобуса (с учетом текущего вращения планеты!)
@@ -120,32 +154,54 @@ pub fn draw_wind_arrows_gizmos(
     if !config.show_wind_arrows || climate.winds_3d.is_empty() || geology.elevations.is_empty() {
         return;
     }
+    let Ok(globe_transform) = globe_query.single() else { return; };
 
-    let Ok(globe_transform) = globe_query.single() else {
-        return;
-    };
+    let num_cells = topology.cells.len();
+    let max_speed = climate.winds_3d.iter()
+        .map(|w| w.length())
+        .fold(0.0001_f32, f32::max);
 
-    // Чтобы не перегружать экран миллионами линий на высоких сабдивах, рисуем каждую N-ю стрелку (~2500 стрелок на всю планету)
-    let step = (topology.cells.len() / 2500).max(1);
+    // Бюджет стрелок -> размер пространственной сетки.
+    // Для target_total = 2500 получаем grid_size = 14 (14³ = 2744 ячеек).
+    let target_total = 10000usize.min(num_cells);
+    let grid_size = ((target_total as f32).cbrt().ceil() as i32).max(2);
+    let inv_cell_size = grid_size as f32 * 0.5; // (x,y,z) в [-1,1] -> [0, grid_size)
 
-    for i in (0..topology.cells.len()).step_by(step) {
-        let wind = climate.winds_3d[i];
-        let speed = wind.length();
+    // 1) Для каждой ячейки 3D-сетки храним САМУЮ СИЛЬНУЮ точку.
+    let mut best_per_cell: HashMap<(i32, i32, i32), (usize, f32)> =
+        HashMap::with_capacity(target_total * 2);
+
+    for (i, w) in climate.winds_3d.iter().enumerate() {
+        let speed = w.length();
         if speed < 0.01 {
             continue;
         }
+        let pos = topology.cells[i].center;
+        let key = (
+            ((pos.x + 1.0) * inv_cell_size) as i32,
+            ((pos.y + 1.0) * inv_cell_size) as i32,
+            ((pos.z + 1.0) * inv_cell_size) as i32,
+        );
+        let entry = best_per_cell.entry(key).or_insert((i, speed));
+        if speed > entry.1 {
+            *entry = (i, speed);
+        }
+    }
 
+    // 2) Рисуем по одному представителю из каждой ячейки сетки.
+    for &(i, speed) in best_per_cell.values() {
+        let wind = climate.winds_3d[i];
         let cell_dir = topology.cells[i].center;
         let h = geology.elevations[i].max(0.0);
-        // Приподнимаем стрелку чуть выше поверхности гекса (+0.04)
         let local_start = cell_dir * (world_config.radius + h + 0.04);
         let local_end = local_start + wind * 0.18;
 
-        // Переводим в мировые координаты с учетом вращения глобуса мышкой
         let world_start = globe_transform.transform_point(local_start);
         let world_end = globe_transform.transform_point(local_end);
 
-        gizmos.arrow(world_start, world_end, Color::srgba(1.0, 0.95, 0.3, 0.85));
+        let s = (speed / max_speed).clamp(0.0, 1.0).sqrt();
+        let color = wind_speed_to_color(s).with_alpha(0.35 + 0.6 * s);
+        gizmos.arrow(world_start, world_end, color);
     }
 }
 
@@ -206,7 +262,10 @@ pub fn draw_climate_tab(
         .add(egui::Slider::new(&mut config.base_ocean_moderation, 0.0..=1.0).text("Инерция океана"))
         .changed();
     sim_changed |= ui
-        .add(egui::Slider::new(&mut config.continentality_factor, 0.01..=0.5).text("Затухание вглубь суши"))
+        .add(egui::Slider::new(&mut config.land_continentality_scale, 0.1..=1.5).text("Размер береговой зоны (рад)"))
+        .changed();
+    sim_changed |= ui
+        .add(egui::Slider::new(&mut config.ocean_continentality_scale, 0.02..=0.6).text("Зона окраинных морей (рад)"))
         .changed();
 
     ui.separator();

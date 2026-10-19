@@ -11,6 +11,17 @@ fn smoothstep(t: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
+/// Высотное охлаждение с мягким порогом.
+/// До base_level — 0, после (base_level + blend_width) — линейно.
+fn elevation_cooling(elev: f32, base_level: f32, blend_width: f32) -> f32 {
+    let x = (elev - base_level).max(0.0);
+    let k = blend_width.max(1e-6);
+    if x < k {
+        x * x / (2.0 * k)
+    } else {
+        x - k * 0.5
+    }
+}
 
 /// Главная функция: считает океаны 1 раз, затем просчитывает Весну, Лето и Зиму
 pub fn simulate_all_seasons(
@@ -72,13 +83,17 @@ fn simulate_single_season(
         let lat = topology.cells[i].lat_lon.x;
         let base_insolation = (lat - sun_lat).cos().max(0.0);
 
-        let mut temp_est =
+        let temp_est =
             config.pole_temp + (config.equator_temp - config.pole_temp) * base_insolation;
-        if elev > 0.0 {
-            temp_est -= elev * config.altitude_lapse_rate;
-        }
 
-        snap.albedo[i] = calc_albedo(temp_est, elev, config);
+        let mountain_height = elevation_cooling(
+            elev,
+            config.mountain_base_level,
+            config.mountain_blend_width,
+        );
+        let temp_with_height = temp_est - mountain_height * config.altitude_lapse_rate;
+
+        snap.albedo[i] = calc_albedo(temp_with_height, elev, config);
         let rad_sea_temp = calc_radiative_sea_temp(
             i,
             snap.albedo[i],
@@ -90,7 +105,6 @@ fn simulate_single_season(
         );
 
         sea_level_temps[i] = rad_sea_temp;
-        let mountain_height = (elev - 0.08).max(0.0);
         snap.temperatures[i] = rad_sea_temp - mountain_height * config.altitude_lapse_rate;
     }
 
@@ -160,7 +174,11 @@ fn simulate_single_season(
             sea_level_temps[i] = rad_temp * (1.0 - blend) + advected_temps[i] * blend;
 
             let elev = geology.elevations[i];
-            let mountain_height = (elev - 0.08).max(0.0);
+            let mountain_height = elevation_cooling(
+                elev,
+                config.mountain_base_level,
+                config.mountain_blend_width,
+            );
             let final_temp = sea_level_temps[i] - mountain_height * config.altitude_lapse_rate;
             snap.temperatures[i] = final_temp;
             snap.albedo[i] = calc_albedo(final_temp, elev, config);
@@ -220,7 +238,7 @@ fn calc_radiative_sea_temp(
     let elev = geology.elevations[i];
     if elev <= 0.0 && lat.abs() > 0.6 {
         // 0.0 на мелком шельфе (-0.04), 1.0 в глубоком океане (-0.30)
-        let deep_water_factor = smoothstep((elev - -0.06) / (0.22 - -0.06));
+        let deep_water_factor = smoothstep((elev - (-0.06)) / (-0.22 - (-0.06)));
         // Мелкий шельф у полюсов теряет до -3.5°C (обрастает льдом), а глубокая вода получает до +3.5°C защиты
         let bathymetry_shift = (deep_water_factor - 0.35) * 6.0;
         final_sea_temp += bathymetry_shift;
@@ -235,7 +253,8 @@ fn calc_albedo(temp: f32, elevation: f32, config: &ClimateConfig) -> f32 {
     } else {
         config.land_albedo
     };
-    let ice_blend = smoothstep((temp - config.freezing_temp - 4.0) / (config.freezing_temp + 2.0 - config.freezing_temp - 4.0));
+    let t = (temp - (config.freezing_temp - 4.0)) / 6.0;
+    let ice_blend = smoothstep(t);
     config.ice_albedo * (1.0 - ice_blend) + base_albedo * ice_blend
 }
 
@@ -253,8 +272,13 @@ fn compute_season_pressure_and_winds(
     let mut thermal_field = vec![0.0_f32; num_cells];
     for i in 0..num_cells {
         let lat = topology.cells[i].lat_lon.x;
-        let elev = geology.elevations[i].max(0.0);
-        let sea_level_temp = snap.temperatures[i] + elev * config.altitude_lapse_rate;
+        let elev = geology.elevations[i];
+        let mountain_height = elevation_cooling(
+            elev,
+            config.mountain_base_level,
+            config.mountain_blend_width,
+        );
+        let sea_level_temp = snap.temperatures[i] + mountain_height * config.altitude_lapse_rate;
 
         // Сравниваем температуру клетки со средней нормой на этой широте
         let annual_insolation = lat.cos().max(0.0);
@@ -358,33 +382,50 @@ fn compute_continentality(
 ) {
     let num_cells = topology.cells.len();
     let min_ocean_cells = (num_cells as f32 * config.min_ocean_size_ratio) as usize;
+    // Порог для суши: игнорируем мелкие острова (всё, что меньше 0.5% площади планеты)
+    let min_land_cells = (num_cells as f32 * (config.min_ocean_size_ratio * 0.5)) as usize;
+
     let mut is_ocean = vec![false; num_cells];
+    let mut is_major_land = vec![false; num_cells];
     let mut visited = vec![false; num_cells];
 
+    // 1. Flood Fill: находим настоящие океаны (отсеиваем мелкие озера)
+    // и настоящие континенты (отсеиваем мелкие океанические острова)
     for i in 0..num_cells {
-        if geology.elevations[i] <= 0.0 && !visited[i] {
-            let mut current_body = Vec::new();
-            let mut stack = vec![i];
-            visited[i] = true;
+        if visited[i] {
+            continue;
+        }
 
-            while let Some(cell_id) = stack.pop() {
-                current_body.push(cell_id);
-                for &neighbor_id in &topology.cells[cell_id].neighbors {
-                    if geology.elevations[neighbor_id] <= 0.0 && !visited[neighbor_id] {
-                        visited[neighbor_id] = true;
-                        stack.push(neighbor_id);
-                    }
+        let is_water = geology.elevations[i] <= 0.0;
+        let mut current_body = Vec::new();
+        let mut stack = vec![i];
+        visited[i] = true;
+
+        while let Some(cell_id) = stack.pop() {
+            current_body.push(cell_id);
+            for &neighbor_id in &topology.cells[cell_id].neighbors {
+                let neighbor_is_water = geology.elevations[neighbor_id] <= 0.0;
+                if neighbor_is_water == is_water && !visited[neighbor_id] {
+                    visited[neighbor_id] = true;
+                    stack.push(neighbor_id);
                 }
             }
+        }
 
+        if is_water {
             if current_body.len() >= min_ocean_cells {
                 for &cell_id in &current_body {
                     is_ocean[cell_id] = true;
                 }
             }
+        } else if current_body.len() >= min_land_cells {
+            for &cell_id in &current_body {
+                is_major_land[cell_id] = true;
+            }
         }
     }
-    // BFS 1: расстояние до океана (для суши)
+
+    // BFS 1: расстояние до океана (для всей суши и внутренних озер)
     let mut dist_to_ocean = vec![u32::MAX; num_cells];
     let mut queue = VecDeque::new();
     for i in 0..num_cells {
@@ -393,27 +434,47 @@ fn compute_continentality(
             queue.push_back(i);
         }
     }
-    // ... стандартный BFS ...
+    while let Some(cell_id) = queue.pop_front() {
+        let current_dist = dist_to_ocean[cell_id];
+        for &neighbor_id in &topology.cells[cell_id].neighbors {
+            if dist_to_ocean[neighbor_id] > current_dist + 1 {
+                dist_to_ocean[neighbor_id] = current_dist + 1;
+                queue.push_back(neighbor_id);
+            }
+        }
+    }
 
-    // BFS 2: расстояние до суши (для океана)
+    // BFS 2: расстояние до КРУПНОЙ суши (для океана, игнорируя мелкие острова!)
     let mut dist_to_land = vec![u32::MAX; num_cells];
     queue.clear();
     for i in 0..num_cells {
-        if !is_ocean[i] {
+        if is_major_land[i] {
             dist_to_land[i] = 0;
             queue.push_back(i);
         }
     }
-    // ... стандартный BFS ...
+    while let Some(cell_id) = queue.pop_front() {
+        let current_dist = dist_to_land[cell_id];
+        for &neighbor_id in &topology.cells[cell_id].neighbors {
+            if dist_to_land[neighbor_id] > current_dist + 1 {
+                dist_to_land[neighbor_id] = current_dist + 1;
+                queue.push_back(neighbor_id);
+            }
+        }
+    }
+
+    let avg_hex_rad = (4.0 * std::f32::consts::PI / num_cells as f32).sqrt();
 
     // Знаковая континентальность: -1 = открытый океан, 0 = берег, +1 = глубь континента
     for i in 0..num_cells {
         climate.continentality[i] = if is_ocean[i] {
-            let norm = (dist_to_land[i] as f32 / config.ocean_continentality_scale).min(1.0);
-            -smoothstep(norm)  // -1 далеко от суши, 0 у берега
+            let physical_dist = dist_to_land[i] as f32 * avg_hex_rad;
+            let norm = (physical_dist / config.ocean_continentality_scale).min(1.0);
+            -smoothstep(norm) // -1 далеко от материков, 0 у берега материка
         } else {
-            let norm = (dist_to_ocean[i] as f32 / config.land_continentality_scale).min(1.0);
-            smoothstep(norm)   // 0 у берега, +1 в глуби континента
+            let physical_dist = dist_to_ocean[i] as f32 * avg_hex_rad;
+            let norm = (physical_dist / config.land_continentality_scale).min(1.0);
+            smoothstep(norm)  // 0 на островах и пляжах, +1 в глубине материка
         };
     }
 }
