@@ -497,8 +497,10 @@ fn compute_season_pressure_and_winds(
         }
 
         // Б) Базовое трение о высокогорье (чтобы на плоских плато ветер не разгонялся как в океане)
+        // Базовое трение о любую сушу + дополнительная шероховатость высокогорных плато
+        let land_drag = if geology.elevations[i] > 0.0 { 0.35 } else { 0.0 };
         let plateau_roughness = (my_elev - config.mountain_base_level).max(0.0) * 2.5;
-        let total_drag = mountain_drag + plateau_roughness;
+        let total_drag = land_drag + mountain_drag + plateau_roughness;
 
         let barrier_factor = 1.0 / (1.0 + total_drag * config.mountain_wind_barrier * 0.15);
         wind_3d = wind_3d * barrier_factor * config.wind_speed_multiplier;

@@ -120,6 +120,18 @@ fn render_ui_shell(
                     if changed {
                         pipeline.recolor_mesh = true;
                     }
+
+                    ui.separator();
+                    ui.label("Модификаторы:");
+
+                    // Чекбокс плоской воды (требует полной перестройки геометрии меша)
+                    if ui.checkbox(&mut tectonics_config.flat_water, "Плоский океан").changed() {
+                        pipeline.rebuild_mesh = true; 
+                    }
+
+                    // Чекбоксы стрелок (перенесены из климата, перестройка меша не нужна, т.к. это Gizmos)
+                    ui.checkbox(&mut climate_config.show_wind_arrows, "Стрелки ветров");
+                    ui.checkbox(&mut climate_config.show_ocean_currents, "Стрелки течений");
                 });
 
             // === ПРАВАЯ ПАНЕЛЬ (Настройки генерации) ===

@@ -11,6 +11,7 @@ pub struct Plate {
     pub plate_type: PlateType,
     pub euler_pole: Vec3,
     pub angular_vel: f32,
+    pub base_offset: f32,
 }
 
 pub struct Volcano {
@@ -27,6 +28,8 @@ pub struct GeologyLayer {
     pub plates: Vec<Plate>,
     pub volcanoes: Vec<Volcano>,
     pub volcano_mask: Vec<bool>,
+    pub boundary_dist: Vec<f32>,
+    pub boundary_stress: Vec<f32>, // >0 сжатие, <0 растяжение
 }
 
 impl GeologyLayer {
@@ -34,5 +37,7 @@ impl GeologyLayer {
         self.plate_ids.resize(num_cells, 0);
         self.elevations.resize(num_cells, 0.0);
         self.volcano_mask.resize(num_cells, false);
+        self.boundary_dist.resize(num_cells, 0.0);
+        self.boundary_stress.resize(num_cells, 0.0);
     }
 }

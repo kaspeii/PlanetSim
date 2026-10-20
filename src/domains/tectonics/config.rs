@@ -175,6 +175,8 @@ pub struct TectonicsConfig {
     // === Сглаживание (Клеточный автомат) ===
     /// Сила финального сглаживания (диффузии) высот между соседними гексами
     pub diffusion_strength: f32,
+
+    pub flat_water: bool,
 }
 
 impl Default for TectonicsConfig {
@@ -353,6 +355,8 @@ impl Default for TectonicsConfig {
             // === Сглаживание (Клеточный автомат) ===
             // Сила финального сглаживания (диффузии) высот между соседними гексами
             diffusion_strength: 0.45,
+
+            flat_water: false,
         }
     }
 }

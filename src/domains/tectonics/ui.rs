@@ -12,61 +12,82 @@ pub fn build_elevation_colors(geology: &GeologyLayer) -> Vec<[f32; 4]> {
         .collect()
 }
 
-/// Генерирует массив цветов для режима просмотра тектонических плит (переключение по Tab)
+/// Генерирует массив цветов для режима просмотра тектонических плит с картой высот и напряжений
 pub fn build_plate_colors(geology: &GeologyLayer) -> Vec<[f32; 4]> {
-    // сколько всего континентальных и океанических
-    let (mut n_cont, mut n_ocean) = (0usize, 0usize);
-    for p in &geology.plates {
-        match p.plate_type {
-            PlateType::Continental => n_cont += 1,
-            PlateType::Oceanic => n_ocean += 1,
-        }
-    }
-    let n_cont = n_cont.max(1) as f32;
-    let n_ocean = n_ocean.max(1) as f32;
-
-    // индекс плиты внутри своего типа
-    let mut cont_rank = vec![0usize; geology.plates.len()];
-    let mut ocean_rank = vec![0usize; geology.plates.len()];
-    let (mut ci, mut oi) = (0usize, 0usize);
-    for (i, p) in geology.plates.iter().enumerate() {
-        match p.plate_type {
-            PlateType::Continental => {
-                cont_rank[i] = ci;
-                ci += 1;
-            }
-            PlateType::Oceanic => {
-                ocean_rank[i] = oi;
-                oi += 1;
-            }
-        }
-    }
+    // В идеале эти значения нужно брать из вашего TectonicsConfig.
+    // Используем стандартные значения из вашего конфига для расчетов.
+    let base_cont_h = 0.03;   //[cite: 7]
+    let base_ocean_h = -0.06; //[cite: 7]
 
     geology
         .plate_ids
         .iter()
         .enumerate()
         .map(|(i, &plate_id)| {
+            // Вулканы всегда горят ярким оранжевым поверх всего
             if geology.volcano_mask[i] {
-                return Color::srgb(0.1, 0.1, 0.1).to_linear().to_f32_array();
+                return Color::srgb(1.0, 0.3, 0.0).to_linear().to_f32_array();
             }
 
             let Some(plate) = geology.plates.get(plate_id) else {
                 return Color::srgb(1.0, 1.0, 1.0).to_linear().to_f32_array();
             };
 
-            let (hue, sat, light) = match plate.plate_type {
+            let dist = geology.boundary_dist[i];
+            let stress = geology.boundary_stress[i];
+            let cell_elev = geology.elevations[i];
+
+            // 1. ЦВЕТ ПЛИТЫ ЗАВИСИТ ОТ ЕЁ УНИКАЛЬНОГО СМЕЩЕНИЯ (base_offset)
+            let (hue, sat, base_light, expected_h) = match plate.plate_type {
                 PlateType::Continental => {
-                    let t = cont_rank[plate_id] as f32 / n_cont;
-                    (10.0 + t * 85.0, 0.75, 0.40)
+                    // Переводим смещение (-0.05..0.08) в нормализованное t от 0.0 до 1.0
+                    let t = ((plate.base_offset + 0.05) / 0.13).clamp(0.0, 1.0);
+                    // Градиент: от Зеленого (120.0) для низменностей до Оранжевого (30.0) для плато
+                    let h = 120.0 - t * 90.0;
+                    (h, 0.65, 0.45, base_cont_h + plate.base_offset)
                 }
                 PlateType::Oceanic => {
-                    let t = ocean_rank[plate_id] as f32 / n_ocean;
-                    (185.0 + t * 85.0, 0.55, 0.20)
+                    // Переводим смещение (-0.01..0.01) в t от 0.0 до 1.0
+                    let t = ((plate.base_offset + 0.01) / 0.02).clamp(0.0, 1.0);
+                    // Градиент: от Темно-синего (240.0) до Голубого/Циан (190.0)
+                    let h = 240.0 - t * 50.0;
+                    (h, 0.60, 0.35, base_ocean_h + plate.base_offset)
                 }
             };
 
-            Color::hsl(hue, sat, light).to_linear().to_f32_array()
+            // 2. РЕЛЬЕФНЫЙ ШЕЙДИНГ (Светотень)
+            // Смотрим, насколько этот конкретный гекс выше или ниже "нормальной" высоты своей плиты
+            let elev_diff = cell_elev - expected_h;
+            // Множитель 4.0 делает горы явно светлее, а впадины темнее
+            let relief_mod = (elev_diff * 4.0).clamp(-0.35, 0.45); 
+            
+            // Применяем шейдинг к базовой яркости
+            let mut light = (base_light + relief_mod).clamp(0.05, 0.95);
+
+            // Мягко затемняем самые центры кратонов для глобального объема
+            let center_darkness = (dist / 0.5).clamp(0.0, 1.0);
+            light *= 1.0 - (center_darkness * 0.15);
+
+            let plate_color = Color::hsl(hue, sat, light).to_linear().to_f32_array();
+
+            // 3. ОТРИСОВКА ГРАНИЦ И ГРАДИЕНТА (Красный, Голубой, Белый)
+            let boundary_color = if stress > 0.02 {
+                Color::srgb(1.0, 0.15, 0.15).to_linear().to_f32_array() // Сжатие - Красный
+            } else if stress < -0.02 {
+                Color::srgb(0.0, 0.8, 1.0).to_linear().to_f32_array() // Растяжение - Голубой
+            } else {
+                Color::srgb(0.9, 0.9, 0.9).to_linear().to_f32_array() // Сдвиг - Белый
+            };
+
+            let edge_thickness = 0.12; 
+            let t_dist = (dist / edge_thickness).clamp(0.0, 1.0);
+            let mix_factor = (1.0 - t_dist).powi(2);
+
+            let r = plate_color[0] * (1.0 - mix_factor) + boundary_color[0] * mix_factor;
+            let g = plate_color[1] * (1.0 - mix_factor) + boundary_color[1] * mix_factor;
+            let b = plate_color[2] * (1.0 - mix_factor) + boundary_color[2] * mix_factor;
+
+            [r, g, b, 1.0]
         })
         .collect()
 }

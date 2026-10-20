@@ -9,13 +9,10 @@ use crate::{
                 build_albedo_colors, build_continentality_colors, build_pressure_colors,
                 build_temperature_colors, build_wind_colors,
             },
+        }, tectonics::{
+            self, config::TectonicsConfig, data::GeologyLayer, ui::{build_elevation_colors, build_plate_colors},
         },
-        tectonics::{
-            data::GeologyLayer,
-            ui::{build_elevation_colors, build_plate_colors},
-        },
-    },
-    world::{
+    }, world::{
         WorldConfig,
         pipeline::{PipelineSet, WorldPipeline},
         topology::WorldTopology,
@@ -146,6 +143,7 @@ fn sync_viewport_mesh(
     topology: Res<WorldTopology>,
     world_config: Res<WorldConfig>,
     geology: Res<GeologyLayer>,
+    tectonics_config: Res<TectonicsConfig>,
     climate: Res<ClimateLayer>,
     overlay: Res<MapOverlay>,
     query: Query<&Mesh3d, With<Globe>>,
@@ -158,6 +156,12 @@ fn sync_viewport_mesh(
         return;
     }
 
+    let elevations_to_render = if tectonics_config.flat_water {
+        geology.elevations.iter().map(|&h| h.max(0.0)).collect::<Vec<f32>>()
+    } else {
+        geology.elevations.clone()
+    };
+
     let colors = match *overlay {
         MapOverlay::SpaceView => build_space_colors(&geology, &climate),
         MapOverlay::Elevation => build_elevation_colors(&geology),
@@ -169,31 +173,15 @@ fn sync_viewport_mesh(
         MapOverlay::Winds => build_wind_colors(&climate),
     };
 
-    if let Ok(mesh_handle) = query.single()
-        && let Some(mut mesh) = meshes.get_mut(&mesh_handle.0)
-    {
-        let flatten_water = *overlay == MapOverlay::SpaceView;
-        if pipeline.rebuild_mesh {
-            *mesh = build_globe_mesh(
-                &topology,
-                &geology.elevations,
-                flatten_water,
-                &colors,
-                world_config.radius,
-            );
-        } else if pipeline.recolor_mesh {
-            // 1. Быстро обновляем высоты (сплющиваем или возвращаем океан)
-            let new_positions = reposition_globe_mesh(
-                &topology,
-                &geology.elevations,
-                flatten_water,
-                world_config.radius,
-            );
-            mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, new_positions);
-
-            // 2. Быстро обновляем цвета (ВАЖНО: передаем всегда &geology.elevations, чтобы совпало число вершин)
-            let vertex_colors = recolor_globe_mesh(&topology, &geology.elevations, &colors);
-            mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vertex_colors);
+    if let Ok(mesh_handle) = query.single() {
+        if let Some(mut mesh) = meshes.get_mut(&mesh_handle.0) {
+            if pipeline.rebuild_mesh {
+                // Передаем сплющенные или обычные высоты в генератор геометрии
+                *mesh = build_globe_mesh(&topology, &elevations_to_render, tectonics_config.flat_water, &colors, world_config.radius);
+            } else if pipeline.recolor_mesh {
+                let vertex_colors = recolor_globe_mesh(&topology, &elevations_to_render, &colors);
+                mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vertex_colors);
+            }
         }
     }
 

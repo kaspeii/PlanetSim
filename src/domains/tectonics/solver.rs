@@ -78,11 +78,19 @@ pub fn generate_plates(rng: &mut impl RngExt, config: &TectonicsConfig) -> Vec<P
         // 4. Задаем случайную скалярную скорость вращения плиты
         let angular_vel = rng.random_range(config.angular_vel_min..config.angular_vel_max);
 
+        let base_offset = match plate_type {
+            // Континенты могут сильно подниматься или опускаться
+            PlateType::Continental => rng.random_range(-0.05..0.08), 
+            // Океаны почти не меняют базовую глубину
+            PlateType::Oceanic => rng.random_range(-0.01..0.01),     
+        };
+
         plates.push(Plate {
             center_dir: best_dir,
             plate_type,
             euler_pole,
             angular_vel,
+            base_offset,
         });
     }
     plates
@@ -168,12 +176,12 @@ pub fn simulate_tectonics(
         let raw_m_noise = noise.get(m_coords) as f32;
         let m_noise = config.boundary_noise_base + raw_m_noise * config.boundary_noise_amp;
 
+        let f2 = (1.0 - bd2 / config.edge_threshold).clamp(0.0, 1.0);
+        let normal2 = (p2.center_dir - p1.center_dir).normalize_or_zero();
+        let v2 = p2.euler_pole.cross(dir) * p2.angular_vel;
+        let convergence2 = (v1 - v2).dot(normal2) / config.convergence_ref_speed;
         // 6. Граница с плитой 2
         if bd2 < config.edge_threshold {
-            let f2 = (1.0 - bd2 / config.edge_threshold).clamp(0.0, 1.0);
-            let normal2 = (p2.center_dir - p1.center_dir).normalize_or_zero();
-            let v2 = p2.euler_pole.cross(dir) * p2.angular_vel;
-            let convergence2 = (v1 - v2).dot(normal2) / config.convergence_ref_speed;
 
             if p1.plate_type == PlateType::Oceanic
                 && p2.plate_type == PlateType::Oceanic
@@ -192,12 +200,12 @@ pub fn simulate_tectonics(
             );
         }
 
+        let f3 = (1.0 - bd3 / config.edge_threshold).clamp(0.0, 1.0);
+        let normal3 = (p3.center_dir - p1.center_dir).normalize_or_zero();
+        let v3 = p3.euler_pole.cross(dir) * p3.angular_vel;
+        let convergence3 = (v1 - v3).dot(normal3) / config.convergence_ref_speed;
         // 7. Граница с плитой 3 — аналогично
         if bd3 < config.edge_threshold {
-            let f3 = (1.0 - bd3 / config.edge_threshold).clamp(0.0, 1.0);
-            let normal3 = (p3.center_dir - p1.center_dir).normalize_or_zero();
-            let v3 = p3.euler_pole.cross(dir) * p3.angular_vel;
-            let convergence3 = (v1 - v3).dot(normal3) / config.convergence_ref_speed;
 
             if p1.plate_type == PlateType::Oceanic
                 && p3.plate_type == PlateType::Oceanic
@@ -215,6 +223,15 @@ pub fn simulate_tectonics(
                 config,
             );
         }
+
+        // Находим расстояние до ближайшей границы
+        let min_bd = bd2.min(bd3);
+        
+        // Определяем, какое напряжение доминирует (от 2-й или от 3-й плиты)
+        let dominant_stress = if bd2 < bd3 { convergence2 } else { convergence3 };
+
+        geology.boundary_dist[cell_id] = min_bd;
+        geology.boundary_stress[cell_id] = dominant_stress;
 
         // 8. Смешиваем высоты от двух границ для получения гладкого тройного стыка
         let h1 = h2 * weight2 + h3 * weight3;
@@ -323,8 +340,8 @@ fn calculate_base_elevation(
     config: &TectonicsConfig,
 ) -> f32 {
     let h_base = match p1.plate_type {
-        PlateType::Continental => config.cont_base_height,
-        PlateType::Oceanic => config.ocean_base_height,
+        PlateType::Continental => config.cont_base_height + p1.base_offset,
+        PlateType::Oceanic => config.ocean_base_height + p1.base_offset,
     };
     let sm = config.base_profile_smoothness;
 
