@@ -1,3 +1,5 @@
+// /src/domains/tectonics/tectonics_data.rs
+
 use bevy::prelude::*;
 
 #[derive(PartialEq, Clone, Copy)]

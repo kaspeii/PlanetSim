@@ -1,3 +1,5 @@
+// /src/domains/tectonics/tectonics_solver.rs
+
 use super::{
     tectonics_config::TectonicsConfig,
     tectonics_data::{GeologyLayer, Plate, PlateType, Volcano},

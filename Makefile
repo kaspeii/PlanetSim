@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help check build release run dev test lint fmt fmt-check setup-linux doc audit watch ci clean
+.PHONY: help check build release run dev test lint fmt fmt-check setup-linux doc audit watch ci profiling run-profiling flamegraph release-thin setup-windows clean
 
 ## help: Показать список доступных команд
 help:
@@ -63,6 +63,26 @@ watch:
 
 ## ci: Полный прогон проверок для CI (проверка стиля, линтинг, тесты)
 ci: fmt-check lint test
+
+## profiling: Сборка с оптимизациями и отладочными символами
+profiling:
+	cargo build --profile profiling
+
+## run-profiling: Запуск профилировочной сборки
+run-profiling:
+	cargo run --profile profiling
+
+## flamegraph: Записать flamegraph (требуется: cargo install flamegraph)
+flamegraph:
+	RUSTFLAGS='-C force-frame-pointers=y' cargo flamegraph --profile profiling --bin SocSim
+
+## release-thin: Быстрая оптимизированная сборка (thin-LTO)
+release-thin:
+	cargo build --profile release-thin
+
+## setup-windows: Установка компонентов LLVM (lld) для Windows
+setup-windows:
+	rustup component add llvm-tools-preview
 
 ## clean: Очистка директории target/
 clean:
