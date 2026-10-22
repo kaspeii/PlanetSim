@@ -180,31 +180,30 @@ pub(super) fn draw_wind_arrows_gizmos(
     };
 
     // Пересчитываем сетку стрелок ТОЛЬКО если изменился климат, сезон или размер планеты!
-    if climate.is_changed()
+        if climate.is_changed()
         || config.is_changed()
         || cache.cached_season != Some(config.active_season)
     {
         cache.cached_season = Some(config.active_season);
         cache.arrows.clear();
 
-        let max_speed = climate
-            .winds_3d
-            .iter()
-            .map(|w| w.length())
-            .fold(0.0001_f32, f32::max);
+        // 1. Считаем 95-й процентиль скорости ветра (защита от единичных выбросов)
+        let mut speeds: Vec<f32> = climate.winds_3d.iter().map(|w| w.length()).collect();
+        speeds.sort_by(|a, b| a.total_cmp(b));
+        let idx = ((speeds.len() as f32) * 0.95) as usize;
+        let max_speed = speeds.get(idx).copied().unwrap_or(0.0001).max(0.0001);
 
-        // ~800 равномерно распределённых точек на сфере
+        // 2. Берем равномерную сетку на сфере
         let target_count = 800_usize;
         let mut used = std::collections::HashSet::with_capacity(target_count);
+
         for i in sample_cells_on_sphere(&topology, target_count) {
-            // защита от дубликатов (две точки сферы → одна клетка)
-            if !used.insert(i) {
-                continue;
-            }
+            if !used.insert(i) { continue; }
+            
             let speed = climate.winds_3d[i].length();
-            if speed < max_speed * 0.05 {
-                continue;
-            }
+            if speed < max_speed * 0.05 { continue; } // отсекаем штиль
+
+            // Сжимаем разницу через sqrt
             let s = (speed / max_speed).clamp(0.0, 1.0).sqrt();
             cache.arrows.push((i, s));
         }
@@ -266,25 +265,24 @@ pub(super) fn draw_ocean_currents_gizmos(
         cache.cached_season = Some(config.active_season);
         cache.arrows.clear();
 
-        let max_speed = climate
-            .ocean_currents
-            .iter()
-            .map(|c| c.length())
-            .fold(0.0001_f32, f32::max);
+        // 1. Считаем 95-й процентиль скорости течения
+        let mut speeds: Vec<f32> = climate.ocean_currents.iter().map(|c| c.length()).collect();
+        speeds.sort_by(|a, b| a.total_cmp(b));
+        let idx = ((speeds.len() as f32) * 0.95) as usize;
+        let max_speed = speeds.get(idx).copied().unwrap_or(0.0001).max(0.0001);
 
-        let target_count = 900_usize; // течения чуть плотнее — струи лучше видно
+        // 2. Берем равномерную сетку на сфере (чуть плотнее для океана)
+        let target_count = 900_usize;
         let mut used = std::collections::HashSet::with_capacity(target_count);
+
         for i in sample_cells_on_sphere(&topology, target_count) {
-            if !used.insert(i) {
-                continue;
-            }
-            if geology.elevations[i] > 0.0 {
-                continue; // не рисуем стрелки над сушей
-            }
+            if !used.insert(i) { continue; }
+            if geology.elevations[i] > 0.0 { continue; } // только океан
+
             let speed = climate.ocean_currents[i].length();
-            if speed < max_speed * 0.05 {
-                continue;
-            }
+            if speed < max_speed * 0.05 { continue; }
+
+            // Сжимаем разницу через sqrt
             let s = (speed / max_speed).clamp(0.0, 1.0).sqrt();
             cache.arrows.push((i, s));
         }
@@ -299,7 +297,7 @@ pub(super) fn draw_ocean_currents_gizmos(
 
         // Течения рисуем прямо на уровне моря
         let local_start = cell_dir * (r + r * 0.005);
-        let arrow_len = base_len * (0.35 + 0.65 * s);
+        let arrow_len = base_len * (0.2 + 0.8 * s.powf(1.5));
         let local_end = local_start + current_dir * arrow_len;
 
         let world_start = globe_transform.transform_point(local_start);

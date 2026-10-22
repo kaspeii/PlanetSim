@@ -1,4 +1,6 @@
 use super::climate_data::ClimateSeason;
+// /src/domains/climate/climate_config.rs
+
 use bevy::prelude::*;
 
 #[derive(Resource, Clone)]
@@ -58,6 +60,9 @@ pub struct ClimateConfig {
     pub boundary_current_multiplier: f32,
     /// Сила переноса тепла именно толщей воды (высокая термоинерция)
     pub ocean_advection_rate: f32,
+
+    /// 
+    pub geostrophic_multiplier: f32,
 }
 
 impl Default for ClimateConfig {
@@ -97,6 +102,8 @@ impl Default for ClimateConfig {
             ocean_current_speed_multiplier: 0.15,
             boundary_current_multiplier: 2.5,
             ocean_advection_rate: 0.90,
+
+            geostrophic_multiplier: 2.0,
         }
     }
 }

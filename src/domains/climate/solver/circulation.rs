@@ -199,6 +199,7 @@ pub(super) fn compute_ocean_currents(
     snap: &mut SeasonalSnapshot,
 ) {
     let num_cells = topology.cells.len();
+    let avg_hex_rad = (4.0 * std::f32::consts::PI / num_cells as f32).sqrt();
 
     for i in 0..num_cells {
         // Течения существуют только в воде
@@ -211,13 +212,43 @@ pub(super) fn compute_ocean_currents(
         let pos = cell.center;
         let lat = cell.lat_lon.x;
 
-        // 1. Течение подхватывается ветром
-        let mut current_3d = snap.winds_3d[i] * config.ocean_current_speed_multiplier;
+        // 1. Ветровое течение
+                // 1. Ветровое течение
+        let mut wind_current = snap.winds_3d[i] * config.ocean_current_speed_multiplier;
 
-        // 2. Спираль Экмана: из-за плотности воды Кориолис отклоняет течения сильнее ветра (до ~45 градусов)
+        // Если вода замерзла (есть лед), ветер почти не трогает воду
+        let is_frozen = snap.temperatures[i] <= 0.0;
+        if is_frozen {
+            wind_current *= 0.1; // Лед гасит 90% энергии ветра
+        }
+        
+        // 2. Спираль Экмана (только для ветрового течения!)
         let ekman_angle = -lat.sin() * 0.75;
         let ekman_rot = Quat::from_axis_angle(pos, ekman_angle);
-        current_3d = ekman_rot * current_3d;
+        wind_current = ekman_rot * wind_current;
+
+        // 3. Геострофическое течение (без Экмана, только поворот на 90 градусов от давления)
+        let my_p = snap.pressure[i];
+        let mut grad_p = Vec3::ZERO;
+        for &n_id in &cell.neighbors {
+            if geology.elevations[n_id] <= 0.0 { // только по океану
+                let n_pos = topology.cells[n_id].center;
+                let raw_dir = n_pos - pos;
+                let tangent_dir = (raw_dir - pos * raw_dir.dot(pos)).normalize_or_zero();
+                let safe_dist = raw_dir.length().max(avg_hex_rad * 0.3);
+                let diff = (my_p - snap.pressure[n_id]) / safe_dist;
+                grad_p += tangent_dir * diff;
+            }
+        }
+        if !cell.neighbors.is_empty() {
+            grad_p = (grad_p / cell.neighbors.len() as f32) * 0.5;
+        }
+
+        let geo_rot = Quat::from_axis_angle(pos, -lat.sin().signum() * std::f32::consts::FRAC_PI_2);
+        let geostrophic_current = geo_rot * grad_p * config.geostrophic_multiplier;
+
+        // 4. Смешиваем их
+        let mut current_3d = wind_current * 0.4 + geostrophic_current * 0.6;
 
         // 3. Граничные течения (Отклонение от берегов)
         let mut coast_normal = Vec3::ZERO;
@@ -236,8 +267,6 @@ pub(super) fn compute_ocean_currents(
             let into_coast = current_3d.dot(-coast_normal); // проекция удара в берег
 
             if into_coast > 0.0 {
-                let impact_ratio = (into_coast / orig_speed).clamp(0.0, 1.0);
-                // Убираем компоненту, бьющую в сушу
                 let mut along_coast = current_3d + coast_normal * into_coast;
                 
                 // Восстанавливаем скорость потока (вода не исчезает при ударе в берег, а поворачивает вдоль него)
@@ -245,8 +274,13 @@ pub(super) fn compute_ocean_currents(
                     along_coast = along_coast.normalize() * orig_speed;
                 }
                 
-                // Плавное ускорение пограничного течения пропорционально углу натекания
-                let boost = 1.0 + (config.boundary_current_multiplier - 1.0) * impact_ratio;
+                let east = pos.cross(Vec3::Y).normalize_or_zero();
+                // -1 (суша на востоке) .. +1 (суша на западе)
+                let western_alignment = (-coast_normal).dot(east); 
+                
+                // Плавно усиливаем от 1.0 до 2.5 в зависимости от того, насколько берег "западный"
+                let boost = config.boundary_current_multiplier * (1.0 + 1.5 * smoothstep((western_alignment + 0.5) / 1.0));
+                
                 current_3d = along_coast * boost;
             }
         } else {
@@ -263,7 +297,7 @@ pub(super) fn compute_ocean_currents(
     // Убирает "зубчатость" на границах после Экмана и отскока от берега,
     // делает потоки визуально струйными.
     let mut prev = snap.ocean_currents.clone();
-    for _ in 0..4 {
+    for _ in 0..2 {
         std::mem::swap(&mut snap.ocean_currents, &mut prev);
         for i in 0..num_cells {
             if geology.elevations[i] > 0.0 {
