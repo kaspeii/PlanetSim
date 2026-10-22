@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 use bevy_egui::egui;
-use crate::world::{states::AppState, pipeline::PipelineStage};
+use crate::{world::pipeline::PipelineStage, domains::generator::GenerationRequest};
 
 
 // Импортируем приватный конфиг только внутри своего модуля tectonics!
@@ -11,7 +11,7 @@ use super::tectonics_config::TectonicsConfig;
 pub fn draw_tectonics_tab_system(
     InMut(ui): InMut<'_, egui::Ui>,
     mut config: ResMut<TectonicsConfig>,
-    mut next_state: ResMut<NextState<AppState>>,
+    mut gen_req: ResMut<GenerationRequest>,
 ) {
  ui.heading("Настройки Тектоники");
     ui.separator();
@@ -22,7 +22,7 @@ pub fn draw_tectonics_tab_system(
         egui::Button::new("Сгенерировать ландшафт"),
     );
     if regen_btn.clicked() {
-        next_state.set(AppState::Generating(PipelineStage::Tectonics));
+        gen_req.request(PipelineStage::Tectonics);
     }
 
     ui.separator();

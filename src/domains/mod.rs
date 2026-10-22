@@ -1,28 +1,24 @@
-pub mod generator;
+// /src/domains/mod.rs
+
 pub mod climate;
+pub mod generator;
 pub mod tectonics;
-// pub mod hydrology;
-// pub mod civilization;
 
 use bevy::prelude::*;
-
-use crate::domains::generator::{handle_generation_task, spawn_generation_task};
+use generator::{GenerationRequest, handle_generation_task, spawn_generation_task};
 
 pub struct DomainsPlugin;
 
 impl Plugin for DomainsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((tectonics::TectonicsPlugin, climate::ClimatePlugin))
-            // Запускаем спавн задачи, когда появились в состоянии Generating, а задачи еще нет
-            .add_systems(
-                Update,
-                (
-                    spawn_generation_task.run_if(
-                        generator::is_generating
-                            .and_then(not(any_with_component::<generator::GenerationTask>)),
-                    ),
-                    handle_generation_task.run_if(generator::is_generating),
-                ),
-            );
+        app.init_resource::<GenerationRequest>()
+            .add_plugins((tectonics::TectonicsPlugin, climate::ClimatePlugin))
+            .add_systems(Startup, warmup_gizmos_shader)
+            .add_systems(Update, (spawn_generation_task, handle_generation_task));
     }
+}
+
+/// Прогревает wgpu-пайплайн для 3D-стрелок на старте, чтобы при первом клике не было фриза
+fn warmup_gizmos_shader(mut gizmos: Gizmos) {
+    gizmos.arrow(Vec3::ZERO, Vec3::Y * 0.0001, Color::NONE);
 }

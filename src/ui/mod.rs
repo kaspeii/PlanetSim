@@ -6,8 +6,8 @@ use bevy_egui::{EguiContext, EguiPlugin, EguiPrimaryContextPass, egui};
 use crate::{
     domains::{
         climate::climate_ui::draw_climate_tab_system,
-        generator::is_generating,
-        tectonics::tectonics_ui::draw_tectonics_tab_system,
+        generator::{GenerationRequest, GenerationTask},
+        tectonics::{GeologyLayer, tectonics_ui::draw_tectonics_tab_system},
     },
     viewport::{Globe, MapOverlay, ViewportViewConfig},
     world::{
@@ -40,11 +40,8 @@ impl Plugin for UiPlugin {
             )
             .add_systems(
                 EguiPrimaryContextPass,
-                loading_screen_ui.run_if(is_generating),
-            )
-            .add_systems(
-                EguiPrimaryContextPass,
-                render_ui_shell.run_if(in_state(AppState::InGame)),
+                (render_ui_shell, generation_progress_overlay)
+                    .chain().run_if(in_state(AppState::InGame)),
             )
             .add_systems(Update, manage_scene_visibility);
     }
@@ -52,15 +49,19 @@ impl Plugin for UiPlugin {
 
 fn manage_scene_visibility(
     state: Res<State<AppState>>,
+    geology: Res<GeologyLayer>,
     mut q_globe: Query<&mut Visibility, With<Globe>>,
 ) {
-    if state.is_changed() {
-        let new_vis = match state.get() {
-            AppState::InGame => Visibility::Inherited,
-            _ => Visibility::Hidden,
-        };
-        for mut vis in q_globe.iter_mut() {
-            *vis = new_vis;
+    let should_show = *state.get() == AppState::InGame && !geology.elevations.is_empty();
+    let target_vis = if should_show {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    };
+
+    for mut vis in q_globe.iter_mut() {
+        if *vis != target_vis {
+            *vis = target_vis;
         }
     }
 }
@@ -68,6 +69,7 @@ fn manage_scene_visibility(
 fn main_menu_ui(
     mut contexts: Query<&mut EguiContext>,
     mut next_state: ResMut<NextState<AppState>>,
+    mut gen_req: ResMut<GenerationRequest>,
 ) -> Result {
     let Ok(mut egui_ctx) = contexts.single_mut() else {
         return Ok(());
@@ -86,7 +88,8 @@ fn main_menu_ui(
 
                 let btn = ui.add_sized([220.0, 50.0], egui::Button::new("Сгенерировать планету"));
                 if btn.clicked() {
-                    next_state.set(AppState::Generating(PipelineStage::Tectonics));
+                    gen_req.request(PipelineStage::Tectonics);
+                    next_state.set(AppState::InGame);
                 }
                 ui.add_space(10.0);
             });
@@ -95,36 +98,44 @@ fn main_menu_ui(
     Ok(())
 }
 
-fn loading_screen_ui(
+/// Неблокирующий виджет прогресса генерации (показывает текущий этап и полоску прогресса)
+fn generation_progress_overlay(
     mut contexts: Query<&mut EguiContext>,
-    state: Res<State<AppState>>,
+    tasks: Query<&GenerationTask>,
+    geology: Res<GeologyLayer>,
 ) -> Result {
+    let Some(task) = tasks.iter().next() else {
+        return Ok(());
+    };
     let Ok(mut egui_ctx) = contexts.single_mut() else {
         return Ok(());
     };
 
-    let text = match state.get() {
-        AppState::Generating(PipelineStage::Tectonics) => {
-            "Формирование тектонических плит и климата..."
-        }
-        AppState::Generating(PipelineStage::Climate) => {
-            "Пересчет атмосферы и океанических течений..."
-        }
-        _ => "Загрузка...",
+    let (step_text, progress) = task.status();
+
+    // Если планеты еще нет (первый запуск из меню) — окно по центру,
+    // если перегенерируем на лету — аккуратная плашка сверху по центру, не мешающая обзору!
+    let (align, offset) = if geology.elevations.is_empty() {
+        (egui::Align2::CENTER_CENTER, [0.0, 0.0])
+    } else {
+        (egui::Align2::CENTER_TOP, [0.0, 15.0])
     };
 
-    egui::Window::new("loading_screen")
+    egui::Window::new("generation_status")
         .title_bar(false)
         .resizable(false)
         .collapsible(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .anchor(align, offset)
         .show(egui_ctx.get_mut(), |ui| {
             ui.vertical_centered(|ui| {
-                ui.add_space(15.0);
-                ui.heading(text);
-                ui.add_space(15.0);
-                ui.spinner();
-                ui.add_space(15.0);
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.strong(step_text);
+                });
+                ui.add_space(6.0);
+                ui.add(egui::ProgressBar::new(progress). desired_width(280.0));
+                ui.add_space(6.0);
             });
         });
 

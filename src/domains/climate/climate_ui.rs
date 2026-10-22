@@ -7,17 +7,16 @@ use super::{
     climate_config::ClimateConfig,
     climate_data::{ClimateLayer, ClimateSeason},
 };
-use crate::world::{
+use crate::{world::{
     pipeline::{PipelineStage, WorldPipeline},
-    states::AppState,
-};
+}, domains::generator::GenerationRequest};
 
 pub fn draw_climate_tab_system(
     InMut(ui): InMut<'_, egui::Ui>,
     mut config: ResMut<ClimateConfig>,
     mut climate: ResMut<ClimateLayer>,
     mut pipeline: ResMut<WorldPipeline>,
-    mut next_state: ResMut<NextState<AppState>>,
+    mut gen_req: ResMut<GenerationRequest>,
 ) {
     ui.heading("Климат и Атмосфера");
     ui.separator();
@@ -28,7 +27,7 @@ pub fn draw_climate_tab_system(
         egui::Button::new("Пересчитать климат"),
     );
     if regen_btn.clicked() {
-        next_state.set(AppState::Generating(PipelineStage::Climate));
+        gen_req.request(PipelineStage::Climate);
     }
 
     ui.separator();

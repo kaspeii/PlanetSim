@@ -1,3 +1,5 @@
+// /src/domains/climate/climate_data.rs
+
 use bevy::prelude::*;
 
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
@@ -16,6 +18,8 @@ pub struct SeasonalSnapshot {
     pub winds: Vec<Vec2>,
     pub winds_3d: Vec<Vec3>,
     pub ocean_currents: Vec<Vec3>,
+    pub wind_arrows_cache: Vec<(usize, f32)>,
+    pub current_arrows_cache: Vec<(usize, f32)>,
 }
 
 impl SeasonalSnapshot {
@@ -44,6 +48,9 @@ pub struct ClimateLayer {
     pub winds_3d: Vec<Vec3>,
     // Векторы океанических течений в активном слое
     pub ocean_currents: Vec<Vec3>,
+
+    pub wind_arrows_cache: Vec<(usize, f32)>, 
+    pub current_arrows_cache: Vec<(usize, f32)>,
 
     // Предрассчитанные снимки трех сезонов для биомов, рек и мгновенного переключения в UI
     pub spring: SeasonalSnapshot,
@@ -81,5 +88,7 @@ impl ClimateLayer {
         self.winds.clone_from(&snap.winds);
         self.winds_3d.clone_from(&snap.winds_3d);
         self.ocean_currents.clone_from(&snap.ocean_currents);
+        self.wind_arrows_cache = snap.wind_arrows_cache.clone();
+        self.current_arrows_cache = snap.current_arrows_cache.clone();
     }
 }

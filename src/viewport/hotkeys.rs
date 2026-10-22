@@ -5,19 +5,19 @@ use crate::{
     viewport::MapOverlay,
     world::{
         pipeline::{PipelineStage, WorldPipeline},
-        states::AppState,
     },
+    domains::generator::GenerationRequest,
 };
 
 pub fn hotkey_controls(
     keys: Res<ButtonInput<KeyCode>>,
     mut pipeline: ResMut<WorldPipeline>,
-    mut next_state: ResMut<NextState<AppState>>,
+    mut gen_req: ResMut<GenerationRequest>,
     mut overlay: ResMut<MapOverlay>,
 ) {
     // R — полный асинхронный пересчет планеты с нуля
     if keys.just_pressed(KeyCode::KeyR) {
-        next_state.set(AppState::Generating(PipelineStage::Tectonics));
+        gen_req.request(PipelineStage::Tectonics);
     }
 
     // Tab — переключение слоев карты по кругу
