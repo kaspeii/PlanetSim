@@ -1,0 +1,43 @@
+// /src/viewport/hotkeys.rs
+
+use bevy::prelude::*;
+use crate::{
+    viewport::MapOverlay,
+    world::{
+        pipeline::{PipelineStage, WorldPipeline},
+        states::AppState,
+    },
+};
+
+pub fn hotkey_controls(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut pipeline: ResMut<WorldPipeline>,
+    mut next_state: ResMut<NextState<AppState>>,
+    mut overlay: ResMut<MapOverlay>,
+) {
+    // R — полный асинхронный пересчет планеты с нуля
+    if keys.just_pressed(KeyCode::KeyR) {
+        next_state.set(AppState::Generating(PipelineStage::Tectonics));
+    }
+
+    // Tab — переключение слоев карты по кругу
+    if keys.just_pressed(KeyCode::Tab) {
+        let was_space = *overlay == MapOverlay::SpaceView;
+        *overlay = match *overlay {
+            MapOverlay::SpaceView => MapOverlay::Elevation,
+            MapOverlay::Elevation => MapOverlay::TectonicPlates,
+            MapOverlay::TectonicPlates => MapOverlay::Temperature,
+            MapOverlay::Temperature => MapOverlay::Albedo,
+            MapOverlay::Albedo => MapOverlay::Continentality,
+            MapOverlay::Continentality => MapOverlay::Pressure,
+            MapOverlay::Pressure => MapOverlay::Winds,
+            MapOverlay::Winds => MapOverlay::SpaceView,
+        };
+        let is_space = *overlay == MapOverlay::SpaceView;
+
+        if was_space != is_space {
+            pipeline.reposition_mesh = true;
+        }
+        pipeline.recolor_mesh = true;
+    }
+}

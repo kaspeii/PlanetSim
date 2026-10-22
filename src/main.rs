@@ -1,3 +1,5 @@
+// /src/main.rs
+
 mod domains;
 mod ui;
 mod viewport;

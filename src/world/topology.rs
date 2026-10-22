@@ -1,3 +1,5 @@
+// /src/world/topology.rs
+
 use bevy::prelude::*;
 use std::collections::HashMap;
 
@@ -15,7 +17,7 @@ pub struct TopologicalCell {
     pub corners: Vec<Vec3>,
 }
 
-#[derive(Resource)]
+#[derive(Resource, Clone)]
 pub struct WorldTopology {
     pub cells: Vec<TopologicalCell>,
 }
@@ -35,9 +37,9 @@ impl WorldTopology {
         Self { cells }
     }
 
-    pub fn len(&self) -> usize {
-        self.cells.len()
-    }
+    // pub fn len(&self) -> usize {
+    //     self.cells.len()
+    // }
 
     fn build_base_icosphere() -> (Vec<Vec3>, Vec<[u32; 3]>) {
         let t = (1.0 + 5.0_f32.sqrt()) / 2.0;

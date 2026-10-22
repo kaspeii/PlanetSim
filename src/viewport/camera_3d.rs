@@ -1,5 +1,6 @@
-use super::{Globe, MapOverlay};
-use crate::world::pipeline::WorldPipeline;
+// /src/viewport/camera_3d.rs
+
+use super::Globe;
 use bevy::{
     input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll},
     prelude::*,
@@ -9,6 +10,8 @@ use bevy::{
 pub struct GlobeInertia {
     pub velocity: Vec2,
 }
+
+// ... дальше твой код rotate_globe и zoom_camera без изменений ...
 
 pub fn rotate_globe(
     mut query: Query<(&mut Transform, &mut GlobeInertia), With<Globe>>,
@@ -59,28 +62,3 @@ pub fn zoom_camera(
     }
 }
 
-pub fn hotkey_controls(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut pipeline: ResMut<WorldPipeline>,
-    mut overlay: ResMut<MapOverlay>,
-) {
-    // Полная перегенерация планеты
-    if keys.just_pressed(KeyCode::KeyR) {
-        pipeline.regenerate_tectonics = true;
-    }
-
-    // Переключение режима карты (Рельеф <-> Плиты)
-    if keys.just_pressed(KeyCode::Tab) {
-        *overlay = match *overlay {
-            MapOverlay::SpaceView => MapOverlay::Elevation,
-            MapOverlay::Elevation => MapOverlay::TectonicPlates,
-            MapOverlay::TectonicPlates => MapOverlay::Temperature,
-            MapOverlay::Temperature => MapOverlay::Albedo,
-            MapOverlay::Albedo => MapOverlay::Continentality,
-            MapOverlay::Continentality => MapOverlay::Pressure,
-            MapOverlay::Pressure => MapOverlay::Winds,
-            MapOverlay::Winds => MapOverlay::SpaceView,
-        };
-        pipeline.rebuild_mesh = true;
-    }
-}

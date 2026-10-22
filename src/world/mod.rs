@@ -1,9 +1,11 @@
 pub mod pipeline;
 pub mod topology;
+pub mod states;
 
 use bevy::prelude::*;
 use pipeline::{PipelineSet, WorldPipeline};
 use topology::WorldTopology;
+use states::AppState;
 
 #[derive(Resource, Clone)]
 pub struct WorldConfig {
@@ -28,6 +30,7 @@ impl Plugin for WorldPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<WorldConfig>()
             .init_resource::<WorldPipeline>()
+            .init_state::<AppState>()
             .configure_sets(
                 Update,
                 (

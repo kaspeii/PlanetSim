@@ -1,7 +1,5 @@
-use super::{config::TectonicsConfig, data::GeologyLayer, data::PlateType};
-use crate::world::pipeline::WorldPipeline;
 use bevy::prelude::*;
-use bevy_egui::egui;
+use super::tectonics_data::{GeologyLayer, PlateType};
 
 /// Генерирует массив цветов по высотам рельефа
 pub fn build_elevation_colors(geology: &GeologyLayer) -> Vec<[f32; 4]> {
@@ -83,43 +81,4 @@ pub fn elevation_to_color(h: f32) -> Color {
         x if x < 0.64 => Color::srgb(0.87, 0.33, 0.12),   // кирпич (было 0.55)
         _ => Color::srgb(0.95, 0.18, 0.10),               // раскалённый красный (было 0.7)
     }
-}
-
-pub fn draw_tectonics_tab(
-    ui: &mut egui::Ui,
-    config: &mut TectonicsConfig,
-    pipeline: &mut WorldPipeline,
-) {
-    ui.heading("Настройки Тектоники");
-    ui.separator();
-
-    // Кнопка регенерации (выделенная цветом)
-    let regen_btn = ui.add_sized(
-        [ui.available_width(), 40.0],
-        egui::Button::new("Сгенерировать ландшафт"),
-    );
-    if regen_btn.clicked() {
-        pipeline.regenerate_tectonics = true;
-    }
-
-    ui.separator();
-    ui.label("Базовые параметры:");
-
-    // Ползунки напрямую меняют значения в config
-    ui.add(egui::Slider::new(&mut config.num_plates, 5..=50).text("Кол-во плит"));
-    ui.add(egui::Slider::new(&mut config.continental_ratio, 0.0..=1.0).text("Доля континентов"));
-
-    ui.separator();
-    ui.label("Высоты и океаны:");
-    ui.add(egui::Slider::new(&mut config.cont_base_height, 0.0..=0.5).text("Высота суши"));
-    ui.add(egui::Slider::new(&mut config.ocean_base_height, -1.0..=0.0).text("Глубина океана"));
-
-    ui.separator();
-    ui.label("Шум и искажения:");
-    ui.add(egui::Slider::new(&mut config.warp_strength, 0.0..=1.0).text("Сила искажения границ"));
-    ui.add(egui::Slider::new(&mut config.boundary_noise_amp, 0.0..=3.0).text("Амплитуда гор"));
-    ui.add(
-        egui::Slider::new(&mut config.detail_noise_amp, 0.0..=1.0)
-            .text("Мелкий шум (шероховатость)"),
-    );
 }

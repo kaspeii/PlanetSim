@@ -1,6 +1,6 @@
 use super::{
-    config::TectonicsConfig,
-    data::{GeologyLayer, Plate, PlateType, Volcano},
+    tectonics_config::TectonicsConfig,
+    tectonics_data::{GeologyLayer, Plate, PlateType, Volcano},
 };
 use crate::world::topology::WorldTopology;
 use bevy::math::{Quat, Vec3};

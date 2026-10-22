@@ -1,15 +1,16 @@
+// /src/domains/climate/climate_palettes.rs
+
+use bevy::prelude::*;
+
 use super::{
-    config::ClimateConfig,
-    data::{ClimateLayer, ClimateSeason},
+    climate_config::ClimateConfig,
+    climate_data::{ClimateLayer, ClimateSeason},
 };
 use crate::{
-    domains::tectonics::data::GeologyLayer,
-    viewport::Globe,
-    world::{WorldConfig, pipeline::WorldPipeline, topology::WorldTopology},
+    domains::tectonics::tectonics_data::GeologyLayer,
+    viewport::{Globe, ViewportViewConfig},
+    world::{topology::WorldTopology, WorldConfig},
 };
-use bevy::prelude::*;
-use bevy_egui::egui;
-use std::collections::HashMap;
 
 pub fn build_temperature_colors(climate: &ClimateLayer) -> Vec<[f32; 4]> {
     climate
@@ -160,17 +161,18 @@ pub struct WindArrowsCache {
 }
 
 /// Отрисовка 3D-стрелок ветра поверх глобуса (БЕЗ пересчета сетки каждый кадр!)
-pub fn draw_wind_arrows_gizmos(
+pub(super) fn draw_wind_arrows_gizmos(
     mut gizmos: Gizmos,
     mut cache: Local<WindArrowsCache>,
     topology: Res<WorldTopology>,
     geology: Res<GeologyLayer>,
     climate: Res<ClimateLayer>,
     config: Res<ClimateConfig>,
+    view_config: Res<ViewportViewConfig>,
     world_config: Res<WorldConfig>,
     globe_query: Query<&Transform, With<Globe>>,
 ) {
-    if !config.show_wind_arrows || climate.winds_3d.is_empty() || geology.elevations.is_empty() {
+    if !view_config.show_wind_arrows || climate.winds_3d.is_empty() || geology.elevations.is_empty() {
         return;
     }
     let Ok(globe_transform) = globe_query.single() else {
@@ -191,31 +193,18 @@ pub fn draw_wind_arrows_gizmos(
             .map(|w| w.length())
             .fold(0.0001_f32, f32::max);
 
-        // Сетка 12x12x12 дает ~600–800 хорошо читаемых стрелок на сферу
-        let grid_size = 12_i32;
-        let inv_cell_size = grid_size as f32 * 0.5;
-
-        let mut best_per_cell: HashMap<(i32, i32, i32), (usize, f32)> =
-            HashMap::with_capacity(1024);
-
-        for (i, w) in climate.winds_3d.iter().enumerate() {
-            let speed = w.length();
+        // ~800 равномерно распределённых точек на сфере
+        let target_count = 800_usize;
+        let mut used = std::collections::HashSet::with_capacity(target_count);
+        for i in sample_cells_on_sphere(&topology, target_count) {
+            // защита от дубликатов (две точки сферы → одна клетка)
+            if !used.insert(i) {
+                continue;
+            }
+            let speed = climate.winds_3d[i].length();
             if speed < max_speed * 0.05 {
                 continue;
             }
-            let pos = topology.cells[i].center;
-            let key = (
-                ((pos.x + 1.0) * inv_cell_size) as i32,
-                ((pos.y + 1.0) * inv_cell_size) as i32,
-                ((pos.z + 1.0) * inv_cell_size) as i32,
-            );
-            let entry = best_per_cell.entry(key).or_insert((i, speed));
-            if speed > entry.1 {
-                *entry = (i, speed);
-            }
-        }
-
-        for &(i, speed) in best_per_cell.values() {
             let s = (speed / max_speed).clamp(0.0, 1.0).sqrt();
             cache.arrows.push((i, s));
         }
@@ -249,17 +238,18 @@ pub struct OceanCurrentsCache {
     pub arrows: Vec<(usize, f32)>,
 }
 
-pub fn draw_ocean_currents_gizmos(
+pub(super) fn draw_ocean_currents_gizmos(
     mut gizmos: Gizmos,
     mut cache: Local<OceanCurrentsCache>,
     topology: Res<WorldTopology>,
     geology: Res<GeologyLayer>,
     climate: Res<ClimateLayer>,
     config: Res<ClimateConfig>,
+    view_config: Res<ViewportViewConfig>,
     world_config: Res<WorldConfig>,
     globe_query: Query<&Transform, With<Globe>>,
 ) {
-    if !config.show_ocean_currents
+    if !view_config.show_ocean_currents
         || climate.ocean_currents.is_empty()
         || geology.elevations.is_empty()
     {
@@ -282,31 +272,19 @@ pub fn draw_ocean_currents_gizmos(
             .map(|c| c.length())
             .fold(0.0001_f32, f32::max);
 
-        let grid_size = 14_i32; // Чуть плотнее сетка, чтобы показать струи у берегов
-        let inv_cell_size = grid_size as f32 * 0.5;
-        let mut best_per_cell: HashMap<(i32, i32, i32), (usize, f32)> =
-            HashMap::with_capacity(1024);
-
-        for (i, current) in climate.ocean_currents.iter().enumerate() {
-            let speed = current.length();
+        let target_count = 900_usize; // течения чуть плотнее — струи лучше видно
+        let mut used = std::collections::HashSet::with_capacity(target_count);
+        for i in sample_cells_on_sphere(&topology, target_count) {
+            if !used.insert(i) {
+                continue;
+            }
+            if geology.elevations[i] > 0.0 {
+                continue; // не рисуем стрелки над сушей
+            }
+            let speed = climate.ocean_currents[i].length();
             if speed < max_speed * 0.05 {
                 continue;
             }
-
-            let pos = topology.cells[i].center;
-            let key = (
-                ((pos.x + 1.0) * inv_cell_size) as i32,
-                ((pos.y + 1.0) * inv_cell_size) as i32,
-                ((pos.z + 1.0) * inv_cell_size) as i32,
-            );
-
-            let entry = best_per_cell.entry(key).or_insert((i, speed));
-            if speed > entry.1 {
-                *entry = (i, speed);
-            }
-        }
-
-        for &(i, speed) in best_per_cell.values() {
             let s = (speed / max_speed).clamp(0.0, 1.0).sqrt();
             cache.arrows.push((i, s));
         }
@@ -334,133 +312,32 @@ pub fn draw_ocean_currents_gizmos(
     }
 }
 
-/// Правая панель настроек климата для bevy_egui
-pub fn draw_climate_tab(
-    ui: &mut egui::Ui,
-    config: &mut ClimateConfig,
-    climate: &mut ClimateLayer,
-    pipeline: &mut WorldPipeline,
-) {
-    ui.heading("Климат и Атмосфера");
-    ui.separator();
+/// Равномерно распределённые точки на сфере (golden spiral).
+/// Возвращает индексы клеток топологии, ближайших к каждой точке.
+fn sample_cells_on_sphere(
+    topology: &WorldTopology,
+    count: usize,
+) -> Vec<usize> {
+    let golden = std::f32::consts::PI * (3.0 - 5.0_f32.sqrt());
+    let mut result = Vec::with_capacity(count);
+    let denom = (count.saturating_sub(1)).max(1) as f32; // защита от count<=1
+    for k in 0..count {
+        let y = 1.0 - (k as f32 / denom) * 2.0; // -1..1
+        let r = (1.0 - y * y).max(0.0).sqrt();
+        let theta = golden * k as f32;
+        let sample = Vec3::new(theta.cos() * r, y, theta.sin() * r);
 
-    // --- БЫСТРЫЙ ПЕРЕКЛЮЧАТЕЛЬ ПРЕДРАССЧИТАННЫХ СЕЗОНОВ ---
-    ui.label("Отображаемый сезон (Сев. полушарие):");
-    let mut season_changed = false;
-    ui.horizontal(|ui| {
-        season_changed |= ui
-            .selectable_value(
-                &mut config.active_season,
-                ClimateSeason::Spring,
-                "Весна / Осень",
-            )
-            .changed();
-        season_changed |= ui
-            .selectable_value(&mut config.active_season, ClimateSeason::Summer, "Лето")
-            .changed();
-        season_changed |= ui
-            .selectable_value(&mut config.active_season, ClimateSeason::Winter, "Зима")
-            .changed();
-    });
-
-    if season_changed {
-        // Не пересчитываем физику! Просто подставляем уже готовый снимок сезона:
-        climate.apply_active_season(config.active_season);
-        pipeline.recolor_mesh = true;
+        // Ближайшая клетка (brute force — кэшируется, так что ок)
+        let mut best_i = 0usize;
+        let mut best_d = f32::MAX;
+        for (i, cell) in topology.cells.iter().enumerate() {
+            let d = sample.distance_squared(cell.center);
+            if d < best_d {
+                best_d = d;
+                best_i = i;
+            }
+        }
+        result.push(best_i);
     }
-
-    ui.separator();
-    let mut sim_changed = false;
-
-    ui.label("Температура и Инсоляция");
-    sim_changed |= ui
-        .add(egui::Slider::new(&mut config.equator_temp, 0.0..=60.0).text("Экватор (°C)"))
-        .changed();
-    sim_changed |= ui
-        .add(egui::Slider::new(&mut config.pole_temp, -70.0..=10.0).text("Полюса (°C)"))
-        .changed();
-    sim_changed |= ui
-        .add(
-            egui::Slider::new(&mut config.altitude_lapse_rate, 0.0..=100.0)
-                .text("Остывание в горах"),
-        )
-        .changed();
-    sim_changed |= ui
-        .add(
-            egui::Slider::new(&mut config.freezing_temp, -25.0..=5.0).text("Порог замерзания льда"),
-        )
-        .changed();
-    sim_changed |= ui
-        .add(egui::Slider::new(&mut config.axial_tilt, 0.0..=0.8).text("Наклон оси (рад)"))
-        .changed();
-
-    ui.separator();
-    ui.label("Континентальность");
-    sim_changed |= ui
-        .add(egui::Slider::new(&mut config.base_ocean_moderation, 0.0..=1.0).text("Инерция океана"))
-        .changed();
-    sim_changed |= ui
-        .add(
-            egui::Slider::new(&mut config.land_continentality_scale, 0.1..=1.5)
-                .text("Размер береговой зоны (рад)"),
-        )
-        .changed();
-    sim_changed |= ui
-        .add(
-            egui::Slider::new(&mut config.ocean_continentality_scale, 0.02..=0.6)
-                .text("Зона окраинных морей (рад)"),
-        )
-        .changed();
-
-    ui.separator();
-    ui.label("Давление и Ветра");
-    sim_changed |= ui
-        .add(
-            egui::Slider::new(&mut config.latitudinal_pressure_weight, 0.0..=2.0)
-                .text("Сила поясов (Хэдли и др.)"),
-        )
-        .changed();
-    sim_changed |= ui
-        .add(
-            egui::Slider::new(&mut config.thermal_pressure_weight, 0.0..=2.0)
-                .text("Влияние материков"),
-        )
-        .changed();
-    sim_changed |= ui
-        .add(
-            egui::Slider::new(&mut config.coriolis_strength, 0.0..=1.57)
-                .text("Сила Кориолиса (рад)"),
-        )
-        .changed();
-    sim_changed |= ui
-        .add(egui::Slider::new(&mut config.mountain_wind_barrier, 0.0..=25.0).text("Барьер гор"))
-        .changed();
-    sim_changed |= ui
-        .add(
-            egui::Slider::new(&mut config.wind_speed_multiplier, 1.0..=30.0).text("Скорость ветра"),
-        )
-        .changed();
-    sim_changed |= ui
-        .add(
-            egui::Slider::new(&mut config.heat_advection_strength, 0.0..=1.5)
-                .text("Распространение температуры"),
-        )
-        .changed();
-    sim_changed |= ui
-        .add(
-            egui::Slider::new(&mut config.equilibrium_iterations, 1..=8)
-                .text("Итерации давления-температуры"),
-        )
-        .changed();
-
-    ui.separator();
-    ui.checkbox(&mut config.show_wind_arrows, "Показать 3D-стрелки ветров");
-    ui.checkbox(
-            &mut config.show_ocean_currents,
-            "Показать 3D-стрелки течений",
-        );
-
-    if sim_changed {
-        pipeline.regenerate_climate = true;
-    }
+    result
 }

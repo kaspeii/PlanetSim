@@ -1,4 +1,4 @@
-use super::data::ClimateSeason;
+use super::climate_data::ClimateSeason;
 use bevy::prelude::*;
 
 #[derive(Resource, Clone)]
@@ -34,8 +34,6 @@ pub struct ClimateConfig {
     pub coriolis_strength: f32,
     /// Насколько сильно горные хребты тормозят ветер при подъеме
     pub mountain_wind_barrier: f32,
-    /// Отрисовывать ли 3D-стрелки направления ветра поверх глобуса
-    pub show_wind_arrows: bool,
 
     /// Сила переноса тепла ветрами (0.0 — ветра не влияют на температуру, 1.0 — максимум)
     pub heat_advection_strength: f32,
@@ -47,12 +45,12 @@ pub struct ClimateConfig {
     /// Какой из трех предрассчитанных сезонов сейчас показывать на глобусе
     pub active_season: ClimateSeason,
 
-    pub ocean_continentality_scale: f32, // расстояние в клетках, где океан считается «полностью открытым». Рекомендую 10–15
-    pub land_continentality_scale: f32, // расстояние, где суша считается «полностью континентальной». Рекомендую 15–25
-    pub marginal_sea_moderation_reduction: f32, // 0.0 = отключить эффект маргинальных морей, 0.15 = мягкий, 0.3 = сильный. Рекомендую 0.15
+    pub ocean_continentality_scale: f32,
+    pub land_continentality_scale: f32,
+    pub marginal_sea_moderation_reduction: f32,
 
-    pub mountain_base_level: f32, // бывший магический 0.08; предлагаю 0.10
-    pub mountain_blend_width: f32, // ширина мягкого порога; напр. 0.02
+    pub mountain_base_level: f32,
+    pub mountain_blend_width: f32,
 
     /// Базовый множитель скорости течений относительно ветра
     pub ocean_current_speed_multiplier: f32,
@@ -60,8 +58,6 @@ pub struct ClimateConfig {
     pub boundary_current_multiplier: f32,
     /// Сила переноса тепла именно толщей воды (высокая термоинерция)
     pub ocean_advection_rate: f32,
-    /// Показывать 3D-стрелки течений
-    pub show_ocean_currents: bool,
 }
 
 impl Default for ClimateConfig {
@@ -71,38 +67,36 @@ impl Default for ClimateConfig {
             pole_temp: -30.0,
             altitude_lapse_rate: 70.0,
 
-            min_ocean_size_ratio: 0.01, // 1% от площади планеты
+            min_ocean_size_ratio: 0.01,
             base_ocean_moderation: 0.6,
 
             ocean_albedo: 0.06,
             land_albedo: 0.3,
             ice_albedo: 0.8,
-            freezing_temp: -5.0, // Лед формируется при устойчивом минусе
+            freezing_temp: -5.0,
 
             latitudinal_pressure_weight: 0.65,
             thermal_pressure_weight: 0.45,
             wind_speed_multiplier: 12.0,
-            coriolis_strength: 1.05, // Отклонение ~60 градусов дает реалистичные пассаты и западные ветры
+            coriolis_strength: 1.05,
             mountain_wind_barrier: 8.0,
-            show_wind_arrows: false,
 
             heat_advection_strength: 0.75,
             equilibrium_iterations: 4,
 
             axial_tilt: 0.41,
-            active_season: ClimateSeason::Spring, // По умолчанию отображаем Весну
+            active_season: ClimateSeason::Spring,
 
-            ocean_continentality_scale: 0.35, // расстояние в клетках, где океан считается «полностью открытым».
-            land_continentality_scale: 0.45, // расстояние, где суша считается «полностью континентальной».
-            marginal_sea_moderation_reduction: 0.20, // 0.0 = отключить эффект маргинальных морей, 0.15 = мягкий, 0.3 = сильный. Рекомендую 0.15
+            ocean_continentality_scale: 0.35,
+            land_continentality_scale: 0.45,
+            marginal_sea_moderation_reduction: 0.20,
 
-            mountain_base_level: 0.1, // бывший магический 0.08; предлагаю 0.10
-            mountain_blend_width: 0.02, // ширина мягкого порога; напр. 0.02
+            mountain_base_level: 0.1,
+            mountain_blend_width: 0.02,
 
-            ocean_current_speed_multiplier: 0.15, // Вода плотнее, течёт медленнее ветра
-            boundary_current_multiplier: 2.5,     // Сильное ускорение у берегов
-            ocean_advection_rate: 0.90,           // Океан отлично сохраняет и переносит тепло
-            show_ocean_currents: false,
+            ocean_current_speed_multiplier: 0.15,
+            boundary_current_multiplier: 2.5,
+            ocean_advection_rate: 0.90,
         }
     }
 }

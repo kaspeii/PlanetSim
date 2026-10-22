@@ -6,6 +6,7 @@ pub enum PlateType {
     Continental,
 }
 
+#[derive(PartialEq, Clone, Copy)]
 pub struct Plate {
     pub center_dir: Vec3,
     pub plate_type: PlateType,
@@ -13,6 +14,7 @@ pub struct Plate {
     pub angular_vel: f32,
 }
 
+#[derive(PartialEq, Clone, Copy)]
 pub struct Volcano {
     pub center: Vec3,
     pub height: f32,
@@ -20,7 +22,7 @@ pub struct Volcano {
 }
 
 /// Слой геологических данных: массивы индексируются по `CellId`
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Clone)]
 pub struct GeologyLayer {
     pub plate_ids: Vec<usize>,
     pub elevations: Vec<f32>,

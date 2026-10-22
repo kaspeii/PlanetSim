@@ -8,6 +8,7 @@ bevy = "0.19.1"
 bevy_egui = "0.41.1"
 noise = "0.9"
 rand = "0.10.3"
+futures-lite = "2.6.1"
 
 [profile.dev.package."*"]
 opt-level = 3
