@@ -1,4 +1,4 @@
-// /src/main.rs
+// src/main.rs
 
 mod domains;
 mod ui;

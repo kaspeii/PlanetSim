@@ -1,4 +1,4 @@
-// /src/world/pipeline.rs
+// src/world/pipeline.rs
 
 use bevy::prelude::*;
 

@@ -1,4 +1,4 @@
-// /src/domains/climate/mod.rs
+// src/domains/climate/mod.rs
 
 mod climate_config;
 pub mod climate_data;

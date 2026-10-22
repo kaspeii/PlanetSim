@@ -1,4 +1,4 @@
-// /src/domains/tectonics/tectonics_data.rs
+// src/domains/tectonics/tectonics_data.rs
 
 use bevy::prelude::*;
 

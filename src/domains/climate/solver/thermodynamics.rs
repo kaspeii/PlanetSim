@@ -1,4 +1,4 @@
-// /src/domains/climate/solver/thermodynamics.rs
+// src/domains/climate/solver/thermodynamics.rs
 
 use super::{smoothstep, SolverPrecalc};
 use super::super::climate_config::ClimateConfig;

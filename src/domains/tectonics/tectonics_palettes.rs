@@ -1,4 +1,4 @@
-// /src/domains/tectonics/tectonics_palettes.rs
+// src/domains/tectonics/tectonics_palettes.rs
 
 use bevy::prelude::*;
 use super::tectonics_data::{GeologyLayer, PlateType};

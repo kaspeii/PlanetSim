@@ -1,4 +1,4 @@
-// /src/world/mod.rs
+// src/world/mod.rs
 
 pub mod pipeline;
 pub mod topology;

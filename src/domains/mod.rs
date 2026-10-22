@@ -1,4 +1,4 @@
-// /src/domains/mod.rs
+// src/domains/mod.rs
 
 pub mod climate;
 pub mod generator;

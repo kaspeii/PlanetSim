@@ -1,4 +1,4 @@
-// /src/domains/climate/climate_data.rs
+// src/domains/climate/climate_data.rs
 
 use bevy::prelude::*;
 

@@ -1,4 +1,4 @@
-// /src/domains/generator.rs
+// src/domains/generator.rs
 
 use std::sync::{
     Arc,

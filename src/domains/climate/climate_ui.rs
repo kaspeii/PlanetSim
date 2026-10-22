@@ -1,4 +1,4 @@
-// /src/domains/climate/climate_ui.rs
+// src/domains/climate/climate_ui.rs
 
 use bevy::prelude::*;
 use bevy_egui::egui;

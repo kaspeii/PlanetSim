@@ -1,4 +1,4 @@
-// /src/viewport/camera_3d.rs
+// src/viewport/camera_3d.rs
 
 use super::Globe;
 use bevy::{

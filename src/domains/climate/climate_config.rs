@@ -1,5 +1,5 @@
 use super::climate_data::ClimateSeason;
-// /src/domains/climate/climate_config.rs
+// src/domains/climate/climate_config.rs
 
 use bevy::prelude::*;
 

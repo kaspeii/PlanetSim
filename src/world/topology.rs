@@ -1,4 +1,4 @@
-// /src/world/topology.rs
+// src/world/topology.rs
 
 use bevy::prelude::*;
 use std::collections::HashMap;

@@ -1,4 +1,4 @@
-// /src/ui/mod.rs
+// src/ui/mod.rs
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContext, EguiPlugin, EguiPrimaryContextPass, egui};

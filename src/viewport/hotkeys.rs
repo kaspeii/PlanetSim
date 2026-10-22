@@ -1,4 +1,4 @@
-// /src/viewport/hotkeys.rs
+// src/viewport/hotkeys.rs
 
 use bevy::prelude::*;
 use crate::{

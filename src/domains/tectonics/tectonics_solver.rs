@@ -1,4 +1,4 @@
-// /src/domains/tectonics/tectonics_solver.rs
+// src/domains/tectonics/tectonics_solver.rs
 
 use super::{
     tectonics_config::TectonicsConfig,

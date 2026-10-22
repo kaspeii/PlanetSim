@@ -1,4 +1,4 @@
-// /src/viewport/mesh_globe.rs
+// src/viewport/mesh_globe.rs
 
 use crate::world::topology::WorldTopology;
 use bevy::{

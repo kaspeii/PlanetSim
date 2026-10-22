@@ -1,4 +1,4 @@
-// /src/viewport/mod.rs
+// src/viewport/mod.rs
 
 pub mod camera_3d;
 pub mod hotkeys;

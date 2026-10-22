@@ -1,4 +1,4 @@
-// /src/domains/climate/solver/continentality.rs
+// src/domains/climate/solver/continentality.rs
 
 use std::collections::VecDeque;
 

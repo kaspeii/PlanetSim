@@ -1,4 +1,4 @@
-// /src/world/states.rs
+// src/world/states.rs
 
 use bevy::prelude::*;
 

@@ -1,4 +1,4 @@
-// /src/domains/tectonics/mod.rs
+// src/domains/tectonics/mod.rs
 
 mod tectonics_config;
 pub mod tectonics_data;
