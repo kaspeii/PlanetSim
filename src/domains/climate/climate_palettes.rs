@@ -9,6 +9,42 @@ use crate::{
     world::{topology::WorldTopology, WorldConfig},
 };
 
+/// Палитра относительной влажности [0.0 .. 1.0]:
+/// Пустынная охра (сухо) -> Салатово-зеленый (умеренно) -> Бирюзовый -> Глубокий синий (100% влажность)
+pub fn build_humidity_colors(climate: &ClimateLayer) -> Vec<[f32; 4]> {
+    climate
+        .humidity
+        .iter()
+        .map(|&h| humidity_to_color(h).to_linear().to_f32_array())
+        .collect()
+}
+
+fn humidity_to_color(h: f32) -> Color {
+    const STOPS: &[(f32, [f32; 3])] = &[
+        (0.00, [0.82, 0.58, 0.32]), // Сухая пустыня (песочно-охристый)
+        (0.25, [0.88, 0.82, 0.45]), // Полупустыня / степь (светло-желтый)
+        (0.50, [0.42, 0.78, 0.44]), // Умеренная влажность (зелень)
+        (0.75, [0.15, 0.62, 0.78]), // Влажный морской / муссонный (бирюзовый)
+        (1.00, [0.06, 0.22, 0.68]), // Тропический ливень / насыщенный пар (глубокий синий)
+    ];
+
+    let h = h.clamp(0.0, 1.0);
+    for window in STOPS.windows(2) {
+        let (h0, c0) = window[0];
+        let (h1, c1) = window[1];
+        if h <= h1 {
+            let f = (h - h0) / (h1 - h0);
+            return Color::srgb(
+                c0[0] + (c1[0] - c0[0]) * f,
+                c0[1] + (c1[1] - c0[1]) * f,
+                c0[2] + (c1[2] - c0[2]) * f,
+            );
+        }
+    }
+    let [r, g, b] = STOPS.last().unwrap().1;
+    Color::srgb(r, g, b)
+}
+
 pub fn build_temperature_colors(climate: &ClimateLayer) -> Vec<[f32; 4]> {
     climate
         .temperatures

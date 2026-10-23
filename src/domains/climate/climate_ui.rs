@@ -98,4 +98,23 @@ pub fn draw_climate_tab_system(
         egui::Slider::new(&mut config.equilibrium_iterations, 1..=8)
             .text("Итерации давления-температуры"),
     );
+
+    ui.separator();
+    ui.label("Влажность и Испарение:");
+    ui.add(
+        egui::Slider::new(&mut config.ocean_evaporation_rate, 0.1..=2.5)
+            .text("Испарение океана"),
+    );
+    ui.add(
+        egui::Slider::new(&mut config.moisture_advection_strength, 0.1..=2.0)
+            .text("Перенос влаги ветром"),
+    );
+    ui.add(
+        egui::Slider::new(&mut config.orographic_rain_shadow, 0.0..=45.0)
+            .text("Дождевая тень гор"),
+    );
+    ui.add(
+        egui::Slider::new(&mut config.continental_drying_rate, 0.0..=3.0)
+            .text("Сухость вглубь суши"),
+    );
 }

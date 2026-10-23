@@ -5,6 +5,7 @@ use rayon::prelude::*;
 
 mod circulation;
 mod continentality;
+mod moisture;
 mod thermodynamics;
 
 use super::{
@@ -15,6 +16,7 @@ use crate::{domains::tectonics::tectonics_data::GeologyLayer, world::topology::W
 
 use circulation::{compute_ocean_currents, compute_season_pressure_and_winds};
 use continentality::compute_continentality;
+use moisture::compute_season_moisture;
 use thermodynamics::{calc_albedo, calc_radiative_sea_temp, elevation_cooling};
 
 #[inline]
@@ -182,6 +184,11 @@ pub(super) struct SeasonScratch {
 
     // --- NEW: постоянное на сезон поле широтных поясов давления ---
     pub latitudinal_pressure: Vec<f32>,
+
+    // --- Буферы переноса влаги ---
+    pub specific_humidity: Vec<f32>,
+    pub prev_humidity: Vec<f32>,
+    pub moisture_capacity: Vec<f32>,
 }
 
 impl SeasonScratch {
@@ -197,6 +204,9 @@ impl SeasonScratch {
             prev_pressure: vec![0.0; num_cells],
             prev_currents: vec![Vec3::ZERO; num_cells],
             latitudinal_pressure: vec![0.0; num_cells],
+            specific_humidity: vec![0.0; num_cells],
+            prev_humidity: vec![0.0; num_cells],
+            moisture_capacity: vec![0.0; num_cells],
         }
     }
 }
@@ -304,7 +314,7 @@ fn simulate_single_season(
             let rossby_wave = 1.0 + 0.35 * (3.0 * lon + belt_lat * 2.0).cos() * sin_2lat_abs;
             (0.55 + 0.85 * ocean_core) * rossby_wave
         } else {
-            1.0 - 0.65 * smoothstep(c)
+            1.0 - 0.15 * smoothstep(c)
         };
 
         scratch.latitudinal_pressure[i] =
@@ -537,6 +547,41 @@ fn simulate_single_season(
         continentality,
         config,
         precalc,
+        &mut scratch,
+        snap,
+    );
+    // Обновляем веса ветров по финальному полю winds_3d и считаем влажность сезона
+    wind_speed
+        .par_iter_mut()
+        .enumerate()
+        .for_each(|(i, sp)| *sp = snap.winds_3d[i].length());
+    for i in 0..num_cells {
+        let sp = wind_speed[i];
+        let dir = if sp > 0.001 {
+            snap.winds_3d[i] / sp
+        } else {
+            Vec3::ZERO
+        };
+        let start = offs[i];
+        let end = offs[i + 1];
+        let mut total = 0.0;
+        for j in start..end {
+            let a = tdirs[j].dot(dir);
+            let w = if a < 0.0 { a * a } else { 0.0 };
+            w_air[j] = w;
+            total += w;
+        }
+        total_air[i] = total;
+    }
+
+    compute_season_moisture(
+        topology,
+        geology,
+        config,
+        precalc,
+        &w_air,
+        &total_air,
+        &wind_speed,
         &mut scratch,
         snap,
     );

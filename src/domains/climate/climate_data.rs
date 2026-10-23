@@ -13,6 +13,7 @@ pub enum ClimateSeason {
 #[derive(Clone, Default)]
 pub struct SeasonalSnapshot {
     pub temperatures: Vec<f32>,
+    pub humidity: Vec<f32>,
     pub albedo: Vec<f32>,
     pub pressure: Vec<f32>,
     pub winds: Vec<Vec2>,
@@ -25,6 +26,7 @@ pub struct SeasonalSnapshot {
 impl SeasonalSnapshot {
     pub fn resize(&mut self, num_cells: usize) {
         self.temperatures.resize(num_cells, 0.0);
+        self.humidity.resize(num_cells, 0.0);
         self.albedo.resize(num_cells, 0.0);
         self.pressure.resize(num_cells, 0.0);
         self.winds.resize(num_cells, Vec2::ZERO);
@@ -83,6 +85,7 @@ impl ClimateLayer {
             ClimateSeason::Winter => &self.winter,
         };
         self.temperatures.clone_from(&snap.temperatures);
+        self.humidity.clone_from(&snap.humidity);
         self.albedo.clone_from(&snap.albedo);
         self.pressure.clone_from(&snap.pressure);
         self.winds.clone_from(&snap.winds);

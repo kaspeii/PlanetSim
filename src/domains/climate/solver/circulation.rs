@@ -88,7 +88,8 @@ pub(super) fn compute_season_pressure_and_winds(
     for i in 0..num_cells {
         let cell = &topology.cells[i];
         let pos = cell.center;
-        let my_elev = geology.elevations[i].max(0.0);
+        let mountain_base = config.mountain_base_level;
+        let my_elev = (geology.elevations[i] - mountain_base).max(0.0);
         let east = precalc.east[i];
         let north = precalc.north[i];
 
@@ -128,11 +129,19 @@ pub(super) fn compute_season_pressure_and_winds(
             let k = j - start;
             let n_id = cell.neighbors[k];
             let to_neighbor = tdirs[j];
-            let n_elev = geology.elevations[n_id].max(0.0);
+            let n_elev = (geology.elevations[n_id] - mountain_base).max(0.0);
             let elev_diff = n_elev - my_elev;
 
             if elev_diff > 0.0 {
-                let slope = elev_diff / avg_hex_rad;
+                // 1. Вертикальный масштаб: конвертируем абстрактные единицы высоты в физические
+                // Если пик 0.5 — это ~8 км, то коэффициент ~0.016. 
+                // (Подберите 0.01 - 0.03, чтобы горы выглядели физически реально в ветрах)
+                let vertical_scale = 0.02; 
+                
+                // 2. Физический склон: высота / горизонтальная дистанция в тех же единицах (радианах)
+                let real_height_diff = elev_diff * vertical_scale;
+                let slope = (real_height_diff / avg_hex_rad).clamp(0.0, 2.0); 
+    
                 upslope_grad += to_neighbor * slope;
 
                 let alignment = wind_dir.dot(to_neighbor);
@@ -149,7 +158,7 @@ pub(super) fn compute_season_pressure_and_winds(
             wind_3d -= slope_normal * (into_wall * deflect_strength);
         }
 
-        let plateau_roughness = (my_elev - config.mountain_base_level).max(0.0) * 2.5;
+        let plateau_roughness = my_elev * 2.5;
         let total_drag = mountain_drag + plateau_roughness;
         let barrier_factor = 1.0 / (1.0 + total_drag * config.mountain_wind_barrier * 0.15);
         wind_3d = wind_3d * barrier_factor * config.wind_speed_multiplier;
