@@ -196,6 +196,7 @@ fn render_ui_shell(world: &mut World) -> Result {
                         recolor |= ui.radio_value(&mut *overlay, MapOverlay::TectonicPlates, "Тектонические плиты").changed();
                         recolor |= ui.radio_value(&mut *overlay, MapOverlay::Temperature, "Температура").changed();
                         recolor |= ui.radio_value(&mut *overlay, MapOverlay::Humidity, "Влажность").changed();
+                        recolor |= ui.radio_value(&mut *overlay, MapOverlay::Precipitation, "Осадки").changed();
                         recolor |= ui.radio_value(&mut *overlay, MapOverlay::Albedo, "Альбедо").changed();
                         recolor |= ui.radio_value(&mut *overlay, MapOverlay::Continentality, "Континентальность").changed();
                         recolor |= ui.radio_value(&mut *overlay, MapOverlay::Pressure, "Давление").changed();

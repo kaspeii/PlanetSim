@@ -9,7 +9,7 @@ use crate::{
         climate::{
             climate_data::ClimateLayer,
             climate_palettes::{
-                build_albedo_colors, build_continentality_colors, build_humidity_colors,
+                build_albedo_colors, build_continentality_colors, build_humidity_colors, build_precipitation_colors,
                 build_pressure_colors, build_temperature_colors, build_wind_colors,
             },
         },
@@ -49,6 +49,7 @@ pub enum MapOverlay {
     TectonicPlates,
     Temperature,
     Humidity,
+    Precipitation,
     Albedo,
     Continentality,
     Pressure,
@@ -224,6 +225,7 @@ fn compute_overlay_colors(
         MapOverlay::TectonicPlates => build_plate_colors(geology),
         MapOverlay::Temperature => build_temperature_colors(climate),
         MapOverlay::Humidity => build_humidity_colors(climate),
+        MapOverlay::Precipitation => build_precipitation_colors(climate),
         MapOverlay::Albedo => build_albedo_colors(climate),
         MapOverlay::Continentality => build_continentality_colors(climate),
         MapOverlay::Pressure => build_pressure_colors(climate),

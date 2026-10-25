@@ -14,6 +14,7 @@ pub enum ClimateSeason {
 pub struct SeasonalSnapshot {
     pub temperatures: Vec<f32>,
     pub humidity: Vec<f32>,
+    pub precipitation: Vec<f32>,
     pub albedo: Vec<f32>,
     pub pressure: Vec<f32>,
     pub winds: Vec<Vec2>,
@@ -27,6 +28,7 @@ impl SeasonalSnapshot {
     pub fn resize(&mut self, num_cells: usize) {
         self.temperatures.resize(num_cells, 0.0);
         self.humidity.resize(num_cells, 0.0);
+        self.precipitation.resize(num_cells, 0.0);
         self.albedo.resize(num_cells, 0.0);
         self.pressure.resize(num_cells, 0.0);
         self.winds.resize(num_cells, Vec2::ZERO);
@@ -39,6 +41,8 @@ impl SeasonalSnapshot {
 pub struct ClimateLayer {
     pub temperatures: Vec<f32>,
     pub humidity: Vec<f32>,
+    /// Накопленные за сезон осадки [0.0 = сухая пустыня .. 1.0 = тропический ливень]
+    pub precipitation: Vec<f32>,
     pub albedo: Vec<f32>,
     pub continentality: Vec<f32>,
 
@@ -48,10 +52,10 @@ pub struct ClimateLayer {
     pub winds: Vec<Vec2>,
     /// 3D-вектор ветра, лежащий в касательной плоскости к сфере (удобно для 3D-стрелок и адвекции)
     pub winds_3d: Vec<Vec3>,
-    // Векторы океанических течений в активном слое
+    /// Векторы океанических течений в активном слое
     pub ocean_currents: Vec<Vec3>,
 
-    pub wind_arrows_cache: Vec<(usize, f32)>, 
+    pub wind_arrows_cache: Vec<(usize, f32)>,
     pub current_arrows_cache: Vec<(usize, f32)>,
 
     // Предрассчитанные снимки трех сезонов для биомов, рек и мгновенного переключения в UI
@@ -64,6 +68,7 @@ impl ClimateLayer {
     pub fn resize(&mut self, num_cells: usize) {
         self.temperatures.resize(num_cells, 0.0);
         self.humidity.resize(num_cells, 0.0);
+        self.precipitation.resize(num_cells, 0.0);
         self.albedo.resize(num_cells, 0.0);
         self.continentality.resize(num_cells, 0.0);
 
@@ -86,6 +91,7 @@ impl ClimateLayer {
         };
         self.temperatures.clone_from(&snap.temperatures);
         self.humidity.clone_from(&snap.humidity);
+        self.precipitation.clone_from(&snap.precipitation);
         self.albedo.clone_from(&snap.albedo);
         self.pressure.clone_from(&snap.pressure);
         self.winds.clone_from(&snap.winds);
@@ -93,5 +99,13 @@ impl ClimateLayer {
         self.ocean_currents.clone_from(&snap.ocean_currents);
         self.wind_arrows_cache = snap.wind_arrows_cache.clone();
         self.current_arrows_cache = snap.current_arrows_cache.clone();
+    }
+
+    /// Доля твердых осадков (снега) при данной температуре [0.0 = дождь, 1.0 = снег].
+    /// Используется для визуализации снежных фронтов и накопления снега для весеннего половодья рек.
+    #[inline]
+    pub fn snow_fraction(temp_c: f32) -> f32 {
+        let t = ((2.0 - temp_c) / 6.0).clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
     }
 }

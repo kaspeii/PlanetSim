@@ -73,6 +73,11 @@ pub struct ClimateConfig {
     pub ocean_evaporation_rate: f32,
     /// Скорость фонового иссушения воздуха в антициклонах
     pub subsidence_drying_strength: f32,
+
+    /// Интенсивность выпадения осадков (конвективных и орографических)
+    pub precipitation_rate: f32,
+    /// Доля выпавших осадков, которая испаряется с почвы/лесов обратно в воздух (рециклинг влаги)
+    pub land_moisture_recycling: f32,
 }
 
 impl Default for ClimateConfig {
@@ -115,10 +120,12 @@ impl Default for ClimateConfig {
 
             geostrophic_multiplier: 2.0,
 
-            moisture_advection_strength: 1.0,
+            moisture_advection_strength: 2.0,
             orographic_rain_shadow: 7.0,
             ocean_evaporation_rate: 1.0,
             subsidence_drying_strength: 1.0,
+            precipitation_rate: 1.0,
+            land_moisture_recycling: 0.40,
         }
     }
 }

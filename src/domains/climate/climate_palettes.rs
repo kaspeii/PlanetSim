@@ -257,3 +257,64 @@ pub(super) fn draw_ocean_currents_gizmos(
         gizmos.arrow(world_start, world_end, color);
     }
 }
+
+/// Палитра осадков [0.0 .. 1.0] с автоматическим разделением на ДОЖДЬ (T > 0°C) и СНЕГ (T < 0°C).
+pub fn build_precipitation_colors(climate: &ClimateLayer) -> Vec<[f32; 4]> {
+    climate
+        .precipitation
+        .iter()
+        .zip(&climate.temperatures)
+        .map(|(&p, &t)| precipitation_to_color(p, t).to_linear().to_f32_array())
+        .collect()
+}
+
+fn precipitation_to_color(p: f32, temp_c: f32) -> Color {
+    // 1. Шкала жидких осадков (Дождь):
+    // Пустыня -> Степь -> Умеренные дожди -> Сильные дожди -> Тропический ливень
+    const RAIN_STOPS: &[(f32, [f32; 3])] = &[
+        (0.00, [0.85, 0.68, 0.42]), // Аридная пустыня (песочный)
+        (0.12, [0.86, 0.84, 0.44]), // Сухая степь / полупустыня (желтый)
+        (0.30, [0.38, 0.76, 0.42]), // Умеренные осадки (зеленый)
+        (0.55, [0.12, 0.56, 0.80]), // Влажный климат (сине-голубой)
+        (0.78, [0.16, 0.22, 0.74]), // Муссонный ливень (глубокий индиго)
+        (1.00, [0.52, 0.12, 0.68]), // Экстремальный тропический/горный ливень (пурпурный)
+    ];
+
+    // 2. Шкала твердых осадков (Снег при T < 0°C):
+    // Сухая мерзлота (мало снега) -> Поземка -> Снегопад -> Мощная метель/ледник
+    const SNOW_STOPS: &[(f32, [f32; 3])] = &[
+        (0.00, [0.52, 0.55, 0.60]), // Сухая морозная пустыня (холодный серо-стальной)
+        (0.15, [0.58, 0.72, 0.82]), // Малоснежная тундра (сизо-голубой)
+        (0.40, [0.72, 0.88, 0.96]), // Умеренный снегопад (морозно-голубой)
+        (0.70, [0.90, 0.96, 1.00]), // Сильный снегопад (белоснежный)
+        (1.00, [0.82, 0.76, 0.98]), // Экстремальная снежная буря в горах (лавандово-белый)
+    ];
+
+    let p = p.clamp(0.0, 1.0);
+    let rain_rgb = sample_gradient(RAIN_STOPS, p);
+    let snow_rgb = sample_gradient(SNOW_STOPS, p);
+
+    let snow_frac = ClimateLayer::snow_fraction(temp_c);
+    Color::srgb(
+        rain_rgb[0] * (1.0 - snow_frac) + snow_rgb[0] * snow_frac,
+        rain_rgb[1] * (1.0 - snow_frac) + snow_rgb[1] * snow_frac,
+        rain_rgb[2] * (1.0 - snow_frac) + snow_rgb[2] * snow_frac,
+    )
+}
+
+#[inline]
+fn sample_gradient(stops: &[(f32, [f32; 3])], x: f32) -> [f32; 3] {
+    for window in stops.windows(2) {
+        let (x0, c0) = window[0];
+        let (x1, c1) = window[1];
+        if x <= x1 {
+            let f = (x - x0) / (x1 - x0).max(1e-5);
+            return [
+                c0[0] + (c1[0] - c0[0]) * f,
+                c0[1] + (c1[1] - c0[1]) * f,
+                c0[2] + (c1[2] - c0[2]) * f,
+            ];
+        }
+    }
+    stops.last().unwrap().1
+}

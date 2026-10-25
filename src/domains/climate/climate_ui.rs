@@ -99,8 +99,8 @@ pub fn draw_climate_tab_system(
             .text("Итерации давления-температуры"),
     );
 
-    ui.separator();
-    ui.label("Влажность и Испарение:");
+ui.separator();
+    ui.label("Влажность и Осадки:");
     ui.add(
         egui::Slider::new(&mut config.ocean_evaporation_rate, 0.1..=2.5)
             .text("Испарение океана"),
@@ -110,11 +110,19 @@ pub fn draw_climate_tab_system(
             .text("Перенос влаги ветром"),
     );
     ui.add(
-        egui::Slider::new(&mut config.orographic_rain_shadow, 0.0..=45.0)
+        egui::Slider::new(&mut config.orographic_rain_shadow, 0.0..=25.0)
             .text("Дождевая тень гор"),
     );
     ui.add(
         egui::Slider::new(&mut config.subsidence_drying_strength, 0.0..=3.0)
-            .text("Сухость вглубь суши"),
+            .text("Сухость в антициклонах"),
+    );
+    ui.add(
+        egui::Slider::new(&mut config.precipitation_rate, 0.1..=2.5)
+            .text("Интенсивность осадков"),
+    );
+    ui.add(
+        egui::Slider::new(&mut config.land_moisture_recycling, 0.0..=0.85)
+            .text("Рециклинг влаги сушей"),
     );
 }

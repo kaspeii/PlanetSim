@@ -6,6 +6,7 @@ use rayon::prelude::*;
 mod circulation;
 mod continentality;
 mod moisture;
+mod precipitation;
 mod thermodynamics;
 
 use super::{
@@ -17,6 +18,7 @@ use crate::{domains::tectonics::tectonics_data::GeologyLayer, world::topology::W
 use circulation::{compute_ocean_currents, compute_season_pressure_and_winds};
 use continentality::compute_continentality;
 use moisture::compute_season_moisture;
+use precipitation::compute_season_precipitation;
 use thermodynamics::{calc_albedo, calc_radiative_sea_temp, elevation_cooling};
 
 #[inline]
@@ -185,10 +187,11 @@ pub(super) struct SeasonScratch {
     // --- NEW: постоянное на сезон поле широтных поясов давления ---
     pub latitudinal_pressure: Vec<f32>,
 
-    // --- Буферы переноса влаги ---
+    // --- Буферы переноса влаги и осадков ---
     pub specific_humidity: Vec<f32>,
     pub prev_humidity: Vec<f32>,
     pub moisture_capacity: Vec<f32>,
+    pub prev_precipitation: Vec<f32>,
 }
 
 impl SeasonScratch {
@@ -207,6 +210,7 @@ impl SeasonScratch {
             specific_humidity: vec![0.0; num_cells],
             prev_humidity: vec![0.0; num_cells],
             moisture_capacity: vec![0.0; num_cells],
+            prev_precipitation: vec![0.0; num_cells],
         }
     }
 }
@@ -575,6 +579,18 @@ fn simulate_single_season(
     }
 
     compute_season_moisture(
+        topology,
+        geology,
+        config,
+        precalc,
+        &w_air,
+        &total_air,
+        &wind_speed,
+        &mut scratch,
+        snap,
+    );
+
+    compute_season_precipitation(
         topology,
         geology,
         config,
