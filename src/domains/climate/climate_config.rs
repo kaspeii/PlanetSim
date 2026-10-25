@@ -65,14 +65,14 @@ pub struct ClimateConfig {
     pub geostrophic_multiplier: f32,
 
     // --- ПАРАМЕТРЫ ВЛАЖНОСТИ ---
-    /// Интенсивность испарения воды с поверхности океанов
-    pub ocean_evaporation_rate: f32,
     /// Сила и дальность переноса водяного пара ветрами вглубь материков
     pub moisture_advection_strength: f32,
     /// Сила орографического барьера (насколько крутые горы отсекают влагу, создавая дождевую тень)
     pub orographic_rain_shadow: f32,
-    /// Скорость фонового иссушения воздуха над сушей вдали от морей
-    pub continental_drying_rate: f32,
+    /// Интенсивность испарения воды с поверхности океанов
+    pub ocean_evaporation_rate: f32,
+    /// Скорость фонового иссушения воздуха в антициклонах
+    pub subsidence_drying_strength: f32,
 }
 
 impl Default for ClimateConfig {
@@ -115,10 +115,10 @@ impl Default for ClimateConfig {
 
             geostrophic_multiplier: 2.0,
 
-            ocean_evaporation_rate: 1.0,
             moisture_advection_strength: 1.0,
             orographic_rain_shadow: 7.0,
-            continental_drying_rate: 1.0,
+            ocean_evaporation_rate: 1.0,
+            subsidence_drying_strength: 1.0,
         }
     }
 }

@@ -114,7 +114,7 @@ pub fn draw_climate_tab_system(
             .text("Дождевая тень гор"),
     );
     ui.add(
-        egui::Slider::new(&mut config.continental_drying_rate, 0.0..=3.0)
+        egui::Slider::new(&mut config.subsidence_drying_strength, 0.0..=3.0)
             .text("Сухость вглубь суши"),
     );
 }

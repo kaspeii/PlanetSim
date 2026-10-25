@@ -32,8 +32,15 @@ pub(super) fn calc_radiative_sea_temp(
     };
     let effective_insolation = base_insolation * albedo_modifier;
 
-    let raw_temp =
+    let mut raw_temp =
         config.pole_temp + (config.equator_temp - config.pole_temp) * effective_insolation;
+
+    // Континентальный экстремум: суша сильнее раскаляется под высоким солнцем и сильнее стынет у полюсов
+    if geology.elevations[i] > 0.0 {
+        let cont_factor = 1.0
+            - (precalc.moderation[i] / config.base_ocean_moderation.max(0.01)).clamp(0.0, 1.0);
+        raw_temp += cont_factor * (base_insolation - 0.42) * 14.0;
+    }
 
     let moderation = precalc.moderation[i];
     let ocean_equilibrium = precalc.ocean_equilibrium[i];

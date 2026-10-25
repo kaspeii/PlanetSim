@@ -88,8 +88,7 @@ pub(super) fn compute_season_pressure_and_winds(
     for i in 0..num_cells {
         let cell = &topology.cells[i];
         let pos = cell.center;
-        let mountain_base = config.mountain_base_level;
-        let my_elev = (geology.elevations[i] - mountain_base).max(0.0);
+        let my_elev = (geology.elevations[i] - config.mountain_base_level).max(0.0);
         let east = precalc.east[i];
         let north = precalc.north[i];
 
@@ -129,7 +128,7 @@ pub(super) fn compute_season_pressure_and_winds(
             let k = j - start;
             let n_id = cell.neighbors[k];
             let to_neighbor = tdirs[j];
-            let n_elev = (geology.elevations[n_id] - mountain_base).max(0.0);
+            let n_elev = (geology.elevations[n_id] - config.mountain_base_level).max(0.0);
             let elev_diff = n_elev - my_elev;
 
             if elev_diff > 0.0 {
