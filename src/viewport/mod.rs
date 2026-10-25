@@ -55,11 +55,21 @@ pub enum MapOverlay {
     Winds,
 }
 
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub struct ViewportViewConfig {
     pub flat_water: bool,
     pub show_wind_arrows: bool,
     pub show_ocean_currents: bool,
+}
+
+impl Default for ViewportViewConfig {
+    fn default() -> Self { 
+        Self { 
+            flat_water: true,
+            show_wind_arrows: false,
+            show_ocean_currents: false,
+        } 
+    }
 }
 
 pub struct ViewportPlugin;

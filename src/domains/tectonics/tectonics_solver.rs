@@ -554,8 +554,10 @@ pub fn generate_hotspots(
                 rng.random_range(config.hotspot_height_min..config.hotspot_height_max);
 
             let height = height_base * age_factor.powf(config.hotspot_erosion_pow);
-            let radius =
-                config.hotspot_radius_base + config.hotspot_radius_growth * (1.0 - age_factor);
+            let radius = (config.hotspot_radius_base
+            + height * config.volcano_radius_per_height
+            + config.hotspot_radius_growth * (1.0 - age_factor))
+            .max(config.volcano_radius_min);
 
             volcanoes.push(Volcano {
                 center: volcano_pos,

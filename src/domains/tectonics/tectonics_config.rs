@@ -145,6 +145,10 @@ pub struct TectonicsConfig {
     pub hotspot_radius_growth: f32,
     /// Показатель степени для профиля склона вулкана (2 = вогнутые склоны, как у Фудзи)
     pub volcano_profile_pow: i32,
+    /// Прирост радиуса за единицу высоты (купола вместо игл).
+    pub volcano_radius_per_height: f32,
+    /// Минимальный радиус вулкана (в радианах)
+    pub volcano_radius_min: f32,
     /// Масштаб (частота) шума, искажающего склоны вулкана
     pub volcano_noise_scale: f64,
     /// Базовая составляющая шума вулкана (сохраняет основную форму конуса)
@@ -323,6 +327,8 @@ impl Default for TectonicsConfig {
             hotspot_radius_growth: 0.02,
             // Показатель степени для профиля склона вулкана (2 = вогнутые склоны, как у Фудзи)
             volcano_profile_pow: 2,
+            volcano_radius_per_height: 0.05,
+            volcano_radius_min: 0.02,
             // Масштаб (частота) шума, искажающего склоны вулкана
             volcano_noise_scale: 25.0,
             // Базовая составляющая шума вулкана (сохраняет основную форму конуса)
