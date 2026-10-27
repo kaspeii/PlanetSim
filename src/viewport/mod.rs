@@ -64,6 +64,7 @@ pub struct ViewportViewConfig {
     pub show_rivers: bool,
     pub show_wind_arrows: bool,
     pub show_ocean_currents: bool,
+    pub show_axis_equator: bool,
 }
 
 impl Default for ViewportViewConfig {
@@ -73,6 +74,7 @@ impl Default for ViewportViewConfig {
             show_rivers: true,
             show_wind_arrows: false,
             show_ocean_currents: false,
+            show_axis_equator: false,
         }
     }
 }
@@ -90,13 +92,13 @@ impl Plugin for ViewportPlugin {
                 Update,
                 (rotate_globe, zoom_camera, hotkey_controls, keyboard_zoom, reset_zoom).in_set(PipelineSet::Input),
             )
-            .add_systems(Update, sync_viewport_mesh.in_set(PipelineSet::Render));
+            .add_systems(Update, sync_viewport_mesh.in_set(PipelineSet::Render))
+            .add_systems(Update, draw_axis_and_equator_gizmos.in_set(PipelineSet::Render));
     }
 }
 
 fn setup_scene(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let material_handle = materials.add(StandardMaterial {
@@ -112,21 +114,21 @@ fn setup_scene(
         ..default()
     });
 
+    // Используем Mesh3d::default() без аллокации временных сфер/пустых мешей в GPU-буфере
     commands
         .spawn((
-            Mesh3d(meshes.add(Mesh::from(Sphere::new(1.0)))),
+            Mesh3d::default(),
             MeshMaterial3d(material_handle),
             Globe,
             GlobeInertia::default(),
+            Visibility::Hidden,
         ))
         .with_children(|parent| {
             parent.spawn((
-                Mesh3d(meshes.add(Mesh::new(
-                    bevy::render::mesh::PrimitiveTopology::TriangleList,
-                    bevy::asset::RenderAssetUsages::default(),
-                ))),
+                Mesh3d::default(),
                 MeshMaterial3d(river_material),
                 RiverOverlayMesh,
+                Visibility::Hidden,
             ));
         });
 
@@ -193,14 +195,19 @@ fn sync_viewport_mesh(
     climate: Res<ClimateLayer>,
     hydrology: Res<HydrologyLayer>,
     hydrology_config: Res<HydrologyConfig>,
-    mut river_query: Query<(&Mesh3d, &mut Visibility), (With<RiverOverlayMesh>, Without<Globe>)>,
     overlay: Res<MapOverlay>,
     view_config: Res<ViewportViewConfig>,
-    query: Query<&Mesh3d, With<Globe>>,
+    mut globe_query: Query<&mut Mesh3d, (With<Globe>, Without<RiverOverlayMesh>)>,
+    mut river_query: Query<(&mut Mesh3d, &mut Visibility), (With<RiverOverlayMesh>, Without<Globe>)>,
     mut meshes: ResMut<Assets<Mesh>>,
+    // Задерживает удаление старого меша на 1 кадр, чтобы slab_allocator не делал free + grow одновременно
+    mut deferred_mesh_drops: Local<Vec<Handle<Mesh>>>,
 ) {
+    // Освобождаем старые меши с прошлого кадра, когда расширение GPU-буфера уже завершено
+    deferred_mesh_drops.clear();
+
     if let Ok((_, mut river_vis)) = river_query.single_mut() {
-        let target_vis = if view_config.show_rivers {
+        let target_vis = if view_config.show_rivers && !hydrology.flow_accumulation.is_empty() {
             Visibility::Inherited
         } else {
             Visibility::Hidden
@@ -217,23 +224,26 @@ fn sync_viewport_mesh(
     {
         return;
     }
+    if geology.elevations.is_empty() || climate.temperatures.is_empty() {
+        return;
+    }
 
-    if let Ok(mesh_handle) = query.single()
-        && let Some(mut mesh) = meshes.get_mut(&mesh_handle.0)
-    {
+    // 1. Обновление меша глобуса
+    if let Ok(mut mesh_handle) = globe_query.single_mut() {
         let flatten_water = view_config.flat_water;
 
         if pipeline.rebuild_mesh {
             let colors = compute_overlay_colors(&overlay, &geology, &climate, &hydrology);
-            *mesh = build_globe_mesh(
+            let new_mesh = build_globe_mesh(
                 &topology,
                 &geology.elevations,
                 flatten_water,
                 &colors,
                 world_config.radius,
             );
-        } else {
-            // Быстрый сдвиг вершин океана (при клике на "Плоский океан")
+            deferred_mesh_drops.push(mesh_handle.0.clone());
+            mesh_handle.0 = meshes.add(new_mesh);
+        } else if let Some(mut mesh) = meshes.get_mut(&mesh_handle.0) {
             if pipeline.reposition_mesh {
                 let new_positions = reposition_globe_mesh(
                     &topology,
@@ -244,7 +254,6 @@ fn sync_viewport_mesh(
                 mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, new_positions);
             }
 
-            // Быстрая смена палитры (при переключении радио-кнопок или сезона)
             if pipeline.recolor_mesh {
                 let colors = compute_overlay_colors(&overlay, &geology, &climate, &hydrology);
                 let vertex_colors = recolor_globe_mesh(&topology, &geology.elevations, &colors);
@@ -253,11 +262,10 @@ fn sync_viewport_mesh(
         }
     }
 
+    // 2. Обновление меша речной сети
     if pipeline.rebuild_mesh || pipeline.reposition_mesh || pipeline.rebuild_rivers {
-        if let Ok((river_mesh_handle, _)) = river_query.single()
-            && let Some(mut r_mesh) = meshes.get_mut(&river_mesh_handle.0)
-        {
-            *r_mesh = build_river_mesh(
+        if let Ok((mut river_mesh_handle, _)) = river_query.single_mut() {
+            let new_river_mesh = build_river_mesh(
                 &topology,
                 &geology,
                 &hydrology,
@@ -265,6 +273,8 @@ fn sync_viewport_mesh(
                 view_config.flat_water,
                 world_config.radius,
             );
+            deferred_mesh_drops.push(river_mesh_handle.0.clone());
+            river_mesh_handle.0 = meshes.add(new_river_mesh);
         }
     }
 
@@ -296,4 +306,42 @@ fn compute_overlay_colors(
         MapOverlay::SoilMoisture => build_soil_moisture_colors(geology, hydrology),
         MapOverlay::Biomes => build_biome_colors(hydrology),
     }
+}
+
+pub fn draw_axis_and_equator_gizmos(
+    mut gizmos: Gizmos,
+    view_config: Res<ViewportViewConfig>,
+    world_config: Res<crate::world::WorldConfig>,
+    globe_query: Query<&Transform, With<Globe>>,
+) {
+    if !view_config.show_axis_equator {
+        return;
+    }
+
+    let Ok(globe_transform) = globe_query.single() else {
+        return;
+    };
+
+    let radius = world_config.radius;
+
+    // 1. Рисуем ось вращения (от Южного полюса к Северному)
+    let local_top = Vec3::Y * (radius + 1.0);
+    let local_bottom = Vec3::NEG_Y * (radius + 1.0);
+    
+    let world_top = globe_transform.transform_point(local_top);
+    let world_bottom = globe_transform.transform_point(local_bottom);
+
+    gizmos.arrow(world_bottom, world_top, Color::srgba(1.0, 0.2, 0.2, 0.9));
+
+    // 2. Рисуем Экватор
+    let equator_radius = radius + 0.05; 
+    
+    // Поворачиваем плоскость круга (по умолчанию XY) на -90 градусов по X, чтобы получить экватор (XZ)
+    let equator_rotation = globe_transform.rotation * Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+    
+    gizmos.circle(
+        Isometry3d::new(globe_transform.translation, equator_rotation),
+        equator_radius, 
+        Color::srgba(0.2, 0.8, 1.0, 0.9),
+    );
 }

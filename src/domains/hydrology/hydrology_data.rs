@@ -82,7 +82,7 @@ impl HydrologyLayer {
         self.flow_accumulation.resize(num_cells, 0.0);
 
         self.soil_moisture.resize(num_cells, 0.0);
-        
+
         self.biomes.resize(num_cells, Biome::DeepOcean);
     }
 }

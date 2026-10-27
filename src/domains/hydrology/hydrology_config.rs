@@ -55,7 +55,7 @@ impl Default for HydrologyConfig {
 
             river_groundwater_seepage: 1.0,
             coupled_climate_feedback: true,
-            
+
             soil_biome_influence: 0.55,
             riparian_river_multiplier: 2.2,
             wetland_max_slope: 0.009,

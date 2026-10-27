@@ -69,7 +69,6 @@ pub(super) fn compute_biomes(
 
         let soil = hydrology.soils[i];
         let [sand, _silt, clay] = hydrology.soil_texture[i];
-        let whc = hydrology.water_capacity[i];
         let flow = hydrology.flow_accumulation[i];
 
         // 4. Криосфера и высокогорные скалы

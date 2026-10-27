@@ -97,12 +97,6 @@ pub fn spawn_generation_task(
         None
     };
 
-    let total_steps = match stage {
-        PipelineStage::Tectonics => 4,
-        PipelineStage::Climate => 2,
-        PipelineStage::Hydrology => 1,
-    };
-
     let coupled = h_config.coupled_climate_feedback;
     let total_steps = match stage {
         PipelineStage::Tectonics => if coupled { 5 } else { 4 },

@@ -84,7 +84,7 @@ impl Default for ClimateConfig {
     fn default() -> Self {
         Self {
             equator_temp: 32.0,
-            pole_temp: -30.0,
+            pole_temp: -20.0,
             altitude_lapse_rate: 70.0,
 
             min_ocean_size_ratio: 0.01,
@@ -95,8 +95,8 @@ impl Default for ClimateConfig {
             ice_albedo: 0.8,
             freezing_temp: -5.0,
 
-            latitudinal_pressure_weight: 0.65,
-            thermal_pressure_weight: 0.45,
+            latitudinal_pressure_weight: 0.45,
+            thermal_pressure_weight: 0.65,
             wind_speed_multiplier: 12.0,
             coriolis_strength: 1.05,
             mountain_wind_barrier: 8.0,
@@ -104,7 +104,7 @@ impl Default for ClimateConfig {
             heat_advection_strength: 0.75,
             equilibrium_iterations: 4,
 
-            axial_tilt: 0.41,
+            axial_tilt: 0.50,
             active_season: ClimateSeason::Spring,
 
             ocean_continentality_scale: 0.35,
@@ -115,7 +115,7 @@ impl Default for ClimateConfig {
             mountain_blend_width: 0.02,
 
             ocean_current_speed_multiplier: 0.15,
-            boundary_current_multiplier: 2.5,
+            boundary_current_multiplier: 4.0,
             ocean_advection_rate: 0.90,
 
             geostrophic_multiplier: 2.0,
@@ -123,7 +123,7 @@ impl Default for ClimateConfig {
             moisture_advection_strength: 2.0,
             orographic_rain_shadow: 7.0,
             ocean_evaporation_rate: 1.0,
-            subsidence_drying_strength: 1.0,
+            subsidence_drying_strength: 0.5,
             precipitation_rate: 1.0,
             land_moisture_recycling: 0.40,
         }

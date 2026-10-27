@@ -436,6 +436,12 @@ pub fn build_river_mesh(
                     waterfall_color,
                 ]);
                 indices.extend_from_slice(&[base, base + 2, base + 1, base + 1, base + 2, base + 3]);
+                if positions.is_empty() {
+                    positions.extend_from_slice(&[[0.0, 0.0, 0.0]; 3]);
+                    normals.extend_from_slice(&[[0.0, 1.0, 0.0]; 3]);
+                    colors.extend_from_slice(&[[0.0, 0.0, 0.0, 0.0]; 3]);
+                    indices.extend_from_slice(&[0, 1, 2]);
+                }
             }
         }
     }

@@ -38,7 +38,7 @@ pub(super) fn compute_season_pressure_and_winds(
     }
 
     // Сглаживание термического поля (параллельно)
-    for _ in 0..20 {
+    for _ in 0..10 {
         std::mem::swap(&mut scratch.thermal_field, &mut scratch.prev_thermal);
         let prev = &scratch.prev_thermal;
         let out = &mut scratch.thermal_field;
