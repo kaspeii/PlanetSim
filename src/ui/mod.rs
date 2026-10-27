@@ -5,21 +5,25 @@ use bevy_egui::{EguiContext, EguiPlugin, EguiPrimaryContextPass, egui};
 
 use crate::{
     domains::{
-        climate::climate_ui::draw_climate_tab_system,
+        climate::{ClimateConfig, climate_data::ClimateLayer, climate_ui::draw_climate_tab_system},
         generator::{GenerationRequest, GenerationTask},
+        hydrology::{HydrologyConfig, HydrologyLayer, hydrology_ui::draw_hydrology_tab_system},
+        save::{SaveUiState, draw_save_load_windows_system},
         tectonics::{GeologyLayer, tectonics_ui::draw_tectonics_tab_system},
-        hydrology::hydrology_ui::draw_hydrology_tab_system,
     },
     viewport::{Globe, MapOverlay, ViewportViewConfig},
     world::{
+        WorldConfig, start_new_planet,
         pipeline::{PipelineStage, WorldPipeline},
         states::AppState,
+        topology::WorldTopology,
     },
 };
 
 #[derive(Resource, Default, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum ActiveTab {
     #[default]
+    World,
     Tectonics,
     Climate,
     Hydrology,
@@ -37,12 +41,12 @@ impl Plugin for UiPlugin {
         app.init_resource::<ActiveTab>()
             .add_systems(
                 EguiPrimaryContextPass,
-                main_menu_ui.run_if(in_state(AppState::MainMenu)),
-            )
-            .add_systems(
-                EguiPrimaryContextPass,
-                (render_ui_shell, generation_progress_overlay)
-                    .chain().run_if(in_state(AppState::InGame)),
+                (
+                    render_ui_shell,
+                    main_menu_ui.run_if(in_state(AppState::MainMenu)),
+                    generation_progress_overlay,
+                )
+                    .chain(),
             )
             .add_systems(Update, manage_scene_visibility);
     }
@@ -67,14 +71,25 @@ fn manage_scene_visibility(
     }
 }
 
+/// В главном меню поверх центрального вьюпорта висит компактное стартовое окно,
+/// а правая/верхняя панели уже полностью доступны для настройки конфигов и загрузки сейвов
 fn main_menu_ui(
     mut contexts: Query<&mut EguiContext>,
     mut next_state: ResMut<NextState<AppState>>,
     mut gen_req: ResMut<GenerationRequest>,
+    mut save_ui: ResMut<SaveUiState>,
+    mut topology: ResMut<WorldTopology>,
+    mut geology: ResMut<GeologyLayer>,
+    mut climate: ResMut<ClimateLayer>,
+    mut hydrology: ResMut<HydrologyLayer>,
+    mut pipeline: ResMut<WorldPipeline>,
+    config: Res<WorldConfig>,
 ) -> Result {
     let Ok(mut egui_ctx) = contexts.single_mut() else {
         return Ok(());
     };
+
+    let target_subdivs = config.next_planet_subdivisions;
 
     egui::Window::new("main_menu")
         .title_bar(false)
@@ -84,14 +99,50 @@ fn main_menu_ui(
         .show(egui_ctx.get_mut(), |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(10.0);
-                ui.heading("Planet Simulator");
-                ui.add_space(20.0);
+                ui.heading("🌍 Planet Simulator");
+                ui.weak("Настройте конфиги справа или выберите действие:");
+                ui.add_space(16.0);
 
-                let btn = ui.add_sized([220.0, 50.0], egui::Button::new("Сгенерировать планету"));
-                if btn.clicked() {
+                let btn_label = format!("🚀 Сгенерировать планету (subdiv {})", target_subdivs);
+                if ui
+                    .add_sized([260.0, 44.0], egui::Button::new(btn_label))
+                    .clicked()
+                {
+                    // Атомарно: сброс/пересборка + запрос генерации
+                    if topology.subdivisions != target_subdivs {
+                        *topology = WorldTopology::new(target_subdivs);
+                    }
+                    *geology   = GeologyLayer::default();
+                    *climate   = ClimateLayer::default();
+                    *hydrology = HydrologyLayer::default();
+
+                    let p = &mut *pipeline;
+                    p.rebuild_mesh   = true;
+                    p.recolor_mesh   = true;
+                    p.rebuild_rivers = true;
+
                     gen_req.request(PipelineStage::Tectonics);
                     next_state.set(AppState::InGame);
                 }
+
+                ui.add_space(6.0);
+                if ui
+                    .add_sized([260.0, 36.0], egui::Button::new("📂 Загрузить планету..."))
+                    .clicked()
+                {
+                    save_ui.refresh_lists();
+                    save_ui.show_planets_window = true;
+                }
+
+                ui.add_space(4.0);
+                if ui
+                    .add_sized([260.0, 32.0], egui::Button::new("⚙ Пресеты конфигов..."))
+                    .clicked()
+                {
+                    save_ui.refresh_lists();
+                    save_ui.show_configs_window = true;
+                }
+
                 ui.add_space(10.0);
             });
         });
@@ -114,12 +165,10 @@ fn generation_progress_overlay(
     let snap = task.logger.snapshot();
     let progress = snap.progress();
 
-    // Если это первая генерация из меню — окно по центру,
-    // если перегенерируем на лету — аккуратная панель сверху по центру
     let (align, offset) = if task.is_initial {
         (egui::Align2::CENTER_CENTER, [0.0, 0.0])
     } else {
-        (egui::Align2::CENTER_TOP, [0.0, 15.0])
+        (egui::Align2::CENTER_TOP, [0.0, 42.0])
     };
 
     let content_width = 440.0;
@@ -134,7 +183,6 @@ fn generation_progress_overlay(
             ui.set_width(content_width);
             ui.add_space(4.0);
 
-            // === Заголовок окна ===
             ui.horizontal(|ui| {
                 ui.set_width(content_width);
                 if snap.is_finished {
@@ -166,12 +214,10 @@ fn generation_progress_overlay(
             ui.separator();
             ui.add_space(2.0);
 
-            // === Список этапов с таймингами ===
             for entry in &snap.entries {
                 ui.horizontal(|ui| {
                     ui.set_width(content_width);
                     if let Some(ms) = entry.duration_ms {
-                        // Завершенный этап
                         ui.label(
                             egui::RichText::new("✔")
                                 .color(egui::Color32::from_rgb(80, 210, 120)),
@@ -191,7 +237,6 @@ fn generation_progress_overlay(
                             },
                         );
                     } else {
-                        // Текущий выполняющийся этап
                         let live_ms = entry.started_at.elapsed().as_millis();
                         ui.spinner();
                         ui.label(
@@ -226,9 +271,6 @@ fn generation_progress_overlay(
     Ok(())
 }
 
-/// Эксклюзивная система UI: сама достает контекст egui 0.35, строит Area и Panel,
-/// а отрисовку правой вкладки делегирует доменам через run_system_cached_with,
-/// не зная ничего про их внутренние конфиги!
 fn render_ui_shell(world: &mut World) -> Result {
     let mut contexts = world.query::<&mut EguiContext>();
     let Ok(mut egui_ctx) = contexts.single_mut(world) else {
@@ -245,12 +287,74 @@ fn render_ui_shell(world: &mut World) -> Result {
             ui.set_min_size(rect.size());
             ui.set_max_size(rect.size());
 
-            // === 1. НИЖНЯЯ ПАНЕЛЬ (Вкладки / Taskbar) ===
+            // === 0. ВЕРХНЯЯ СИСТЕМНАЯ ПАНЕЛЬ (Classic Top Bar) ===
+            egui::Panel::top("top_panel")
+                .exact_size(32.0)
+                .show(ui, |ui| {
+                    ui.horizontal_centered(|ui| {
+                        ui.strong("🌍 PlanetSim");
+                        ui.separator();
+
+                        let mut open_planets = false;
+                        let mut open_configs = false;
+                        let mut trigger_new_gen = false;
+
+                        world.resource_scope(|_world, mut save_ui: Mut<SaveUiState>| {
+                            if ui
+                                .selectable_label(save_ui.show_planets_window, "💾 Планеты")
+                                .clicked()
+                            {
+                                save_ui.show_planets_window = !save_ui.show_planets_window;
+                                open_planets = save_ui.show_planets_window;
+                            }
+                            if ui
+                                .selectable_label(
+                                    save_ui.show_configs_window,
+                                    "⚙ Пресеты конфигов",
+                                )
+                                .clicked()
+                            {
+                                save_ui.show_configs_window = !save_ui.show_configs_window;
+                                open_configs = save_ui.show_configs_window;
+                            }
+                            if open_planets || open_configs {
+                                save_ui.refresh_lists();
+                            }
+                        });
+
+                        ui.separator();
+                        if ui.button("🚀 Новая планета").clicked() {
+                            trigger_new_gen = true;
+                        }
+
+                        if trigger_new_gen {
+                            world
+                                .resource_mut::<GenerationRequest>()
+                                .request(PipelineStage::Tectonics);
+                            world
+                                .resource_mut::<NextState<AppState>>()
+                                .set(AppState::InGame);
+                        }
+
+                        let subdivs = world.resource::<WorldTopology>().subdivisions;
+                        let has_geo = !world.resource::<GeologyLayer>().elevations.is_empty();
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.weak(format!(
+                                " Детализация: subdiv {} | Статус: {}",
+                                subdivs,
+                                if has_geo { "Планета активна" } else { "Ожидание генерации" }
+                            ));
+                        });
+                    });
+                });
+
+            // === 1. НИЖНЯЯ ПАНЕЛЬ (Вкладки доменов / Taskbar) ===
             egui::Panel::bottom("bottom_panel")
                 .exact_size(40.0)
                 .show(ui, |ui| {
                     let mut active_tab = world.resource_mut::<ActiveTab>();
                     ui.horizontal_centered(|ui| {
+                        ui.selectable_value(&mut *active_tab, ActiveTab::World, "Планета");
                         ui.selectable_value(&mut *active_tab, ActiveTab::Tectonics, "Тектоника");
                         ui.selectable_value(&mut *active_tab, ActiveTab::Climate, "Климат");
                         ui.selectable_value(&mut *active_tab, ActiveTab::Hydrology, "Гидрология");
@@ -293,7 +397,7 @@ fn render_ui_shell(world: &mut World) -> Result {
 
                     ui.separator();
                     ui.label("Модификаторы:");
-                    
+
                     world.resource_scope(|_world, mut view_cfg: Mut<ViewportViewConfig>| {
                         if ui.checkbox(&mut view_cfg.flat_water, "Плоский океан").changed() {
                             reposition = true;
@@ -334,9 +438,73 @@ fn render_ui_shell(world: &mut World) -> Result {
                         ActiveTab::Civilization => {
                             ui.label("Настройки цивилизаций (в разработке)");
                         }
+                        ActiveTab::World => {
+                            // --- Секция 1: текущая планета ---
+                            let (cur_subdivs, cell_count, has_data) = {
+                                let topo = world.resource::<WorldTopology>();
+                                let geo  = world.resource::<GeologyLayer>();
+                                (topo.subdivisions, topo.cells.len(), !geo.elevations.is_empty())
+                            };
+
+                            ui.heading("Текущая планета");
+                            ui.label(format!("Размерность сетки: subdiv {} ({} ячеек)", cur_subdivs, cell_count));
+                            ui.separator();
+
+                            // --- Секция 2: радиус (live, без перегенерации) ---
+                            let mut radius_changed = false;
+                            world.resource_scope(|_world, mut cfg: Mut<WorldConfig>| {
+                                radius_changed = ui
+                                    .add(
+                                        egui::Slider::new(&mut cfg.radius, 1.0..=20.0)
+                                            .step_by(0.1)
+                                            .text("Радиус"),
+                                    )
+                                    .changed();
+                            });
+                            if radius_changed && has_data {
+                                let mut p = world.resource_mut::<WorldPipeline>();
+                                p.reposition_mesh   = true;
+                                p.rebuild_rivers    = true;
+                            }
+
+                            ui.separator();
+
+                            // --- Секция 3: создание новой планеты ---
+                            ui.heading("Новая планета");
+
+                            let mut launch_subdivs: Option<u32> = None;
+                            world.resource_scope(|_world, mut cfg: Mut<WorldConfig>| {
+                                ui.add(
+                                    egui::Slider::new(&mut cfg.next_planet_subdivisions, 3..=9)
+                                        .integer()
+                                        .text("Детализация новой планеты"),
+                                );
+
+                                let est = 10u64 * 4u64.pow(cfg.next_planet_subdivisions) + 2;
+                                ui.weak(format!("≈ {} ячеек", est));
+                                ui.add_space(6.0);
+
+                                if ui
+                                    .add_sized(
+                                        [ui.available_width(), 36.0],
+                                        egui::Button::new("🚀 Создать новую планету с этими настройками"),
+                                    )
+                                    .clicked()
+                                {
+                                    launch_subdivs = Some(cfg.next_planet_subdivisions);
+                                }
+                            });
+
+                            if let Some(subdivs) = launch_subdivs {
+                                start_new_planet(world, subdivs);
+                            }
+                        }
                     });
                 });
         });
+
+    // Отрисовка модальных окон сохранения/загрузки и диалога догенерации
+    let _ = world.run_system_cached_with(draw_save_load_windows_system, ctx);
 
     Ok(())
 }

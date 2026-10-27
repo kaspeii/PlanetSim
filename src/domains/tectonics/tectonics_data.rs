@@ -1,14 +1,15 @@
 // src/domains/tectonics/tectonics_data.rs
 
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub enum PlateType {
     Oceanic,
     Continental,
 }
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub struct Plate {
     pub center_dir: Vec3,
     pub plate_type: PlateType,
@@ -16,7 +17,7 @@ pub struct Plate {
     pub angular_vel: f32,
 }
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub struct Volcano {
     pub center: Vec3,
     pub height: f32,
@@ -25,7 +26,7 @@ pub struct Volcano {
 
 /// Литологические классы материнских пород
 #[repr(u8)]
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub enum RockType {
     #[default]
     OceanicBasalt,   // Океанический базальт (MORB, молодая океаническая кора)
@@ -81,7 +82,8 @@ impl RockType {
 }
 
 /// Слой геологических данных: массивы индексируются по `CellId`
-#[derive(Resource, Default, Clone)]
+#[derive(Resource, Default, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct GeologyLayer {
     pub plate_ids: Vec<usize>,
     pub elevations: Vec<f32>,

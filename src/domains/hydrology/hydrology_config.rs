@@ -1,8 +1,10 @@
 // src/domains/hydrology/hydrology_config.rs
 
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
-#[derive(Resource, Clone)]
+#[derive(Resource, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct HydrologyConfig {
     /// Интенсивность химического выветривания (переход песка/ила в глину в теплом влажном климате)
     pub chemical_weathering_rate: f32,

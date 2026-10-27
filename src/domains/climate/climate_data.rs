@@ -1,8 +1,9 @@
 // src/domains/climate/climate_data.rs
 
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug, Serialize, Deserialize)]
 pub enum ClimateSeason {
     #[default]
     Spring, // Весна / Осень (Равноденствие, смещение 0.0) — по умолчанию
@@ -10,7 +11,8 @@ pub enum ClimateSeason {
     Winter, // Зима в Северном полушарии / Лето в Южном (-axial_tilt)
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SeasonalSnapshot {
     pub temperatures: Vec<f32>,
     pub humidity: Vec<f32>,
@@ -37,7 +39,8 @@ impl SeasonalSnapshot {
     }
 }
 
-#[derive(Resource, Default, Clone)]
+#[derive(Resource, Default, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ClimateLayer {
     pub temperatures: Vec<f32>,
     pub humidity: Vec<f32>,

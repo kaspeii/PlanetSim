@@ -4,14 +4,17 @@ version = 4
 
 [[package]]
 name = "SocSim"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bevy",
  "bevy_egui",
+ "bincode",
  "futures-lite",
  "noise",
  "rand 0.10.3",
  "rayon",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1872,6 +1875,15 @@ dependencies = [
  "serde",
  "thiserror 2.0.21",
  "uuid",
+]
+
+[[package]]
+name = "bincode"
+version = "1.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

@@ -1,9 +1,10 @@
 // src/domains/hydrology/hydrology_data.rs
 
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
 #[repr(u8)]
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub enum SoilType {
     #[default]
     Ocean,     // Морское дно
@@ -19,7 +20,7 @@ pub enum SoilType {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub enum Biome {
     #[default]
     DeepOcean,                // Глубокий океан
@@ -45,7 +46,8 @@ pub enum Biome {
     RiparianOasis,            // Пойменный галерейный лес и речные оазисы в засушливых зонах
 }
 
-#[derive(Resource, Default, Clone)]
+#[derive(Resource, Default, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct HydrologyLayer {
     pub soils: Vec<SoilType>,
     /// Текстура почвы по треугольнику USDA: `[sand, silt, clay]`, сумма = 1.0

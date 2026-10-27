@@ -1,9 +1,11 @@
-use super::climate_data::ClimateSeason;
 // src/domains/climate/climate_config.rs
 
+use super::climate_data::ClimateSeason;
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
-#[derive(Resource, Clone)]
+#[derive(Resource, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ClimateConfig {
     /// Базовая температура на экваторе (в градусах Цельсия)
     pub equator_temp: f32,

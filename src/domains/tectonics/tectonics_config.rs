@@ -1,8 +1,10 @@
 // src/domains/tectonics/tectonics_config.rs
 
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
-#[derive(Resource, Clone)]
+#[derive(Resource, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TectonicsConfig {
     // === Базовые параметры плит ===
     /// Общее количество тектонических плит на планете

@@ -27,6 +27,7 @@ use crate::{
     world::{
         pipeline::{PipelineStage, WorldPipeline},
         topology::WorldTopology,
+        states::AppState,
     },
 };
 
@@ -177,6 +178,7 @@ pub struct GenerationTask {
 pub fn spawn_generation_task(
     mut commands: Commands,
     mut req: ResMut<GenerationRequest>,
+    mut next_state: ResMut<NextState<AppState>>,
     existing_tasks: Query<Entity, With<GenerationTask>>,
     topology: Res<WorldTopology>,
     geology_res: Res<GeologyLayer>,
@@ -186,6 +188,7 @@ pub fn spawn_generation_task(
     h_config: Res<HydrologyConfig>,
 ) {
     let Some(stage) = req.0.take() else { return; };
+    next_state.set(AppState::InGame);
 
     // Если старая задача еще крутилась, отменяем её
     for entity in existing_tasks.iter() {

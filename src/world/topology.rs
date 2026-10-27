@@ -19,6 +19,7 @@ pub struct TopologicalCell {
 
 #[derive(Resource, Clone)]
 pub struct WorldTopology {
+    pub subdivisions: u32,
     pub cells: Vec<TopologicalCell>,
 }
 
@@ -34,7 +35,7 @@ impl WorldTopology {
             Self::calculate_topology(&vertices, &faces);
         let cells = Self::build_cells(&vertices, &incident_faces, &raw_neighbors, &face_centers);
 
-        Self { cells }
+        Self { subdivisions, cells }
     }
 
     // pub fn len(&self) -> usize {
