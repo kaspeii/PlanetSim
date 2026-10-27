@@ -2,7 +2,7 @@
 
 use super::{
     tectonics_config::TectonicsConfig,
-    tectonics_data::{GeologyLayer, Plate, PlateType, Volcano},
+    tectonics_data::{GeologyLayer, Plate, PlateType, RockType, Volcano},
 };
 use crate::world::topology::WorldTopology;
 use bevy::math::{Quat, Vec3};
@@ -39,7 +39,6 @@ pub fn generate_plates(rng: &mut impl RngExt, config: &TectonicsConfig) -> Vec<P
         let mut best_dist = -1.0;
 
         // 2. Равномерно распределяем центры плит по сфере
-        // Метод выбирает случайные точки и оставляет ту, что находится дальше всего от уже созданных плит
         for _ in 0..config.plate_dir_iterations {
             let z: f32 = rng.random_range(-1.0..1.0);
             let lon: f32 = rng.random_range(-PI..PI);
@@ -62,7 +61,6 @@ pub fn generate_plates(rng: &mut impl RngExt, config: &TectonicsConfig) -> Vec<P
         }
 
         // 3. Генерируем полюс Эйлера (ось, вокруг которой будет вращаться плита).
-        // Это обеспечивает корректную сферическую геометрию движения (в отличие от линейных векторов).
         let rand_vec = Vec3::new(
             rng.random_range(-1.0..1.0),
             rng.random_range(-1.0..1.0),
@@ -70,7 +68,6 @@ pub fn generate_plates(rng: &mut impl RngExt, config: &TectonicsConfig) -> Vec<P
         )
         .normalize_or_zero();
 
-        // Предохранитель на маловероятный случай генерации нулевого вектора
         let euler_pole = if rand_vec == Vec3::ZERO {
             Vec3::Y
         } else {
@@ -90,22 +87,26 @@ pub fn generate_plates(rng: &mut impl RngExt, config: &TectonicsConfig) -> Vec<P
     plates
 }
 
-/// Главная функция симуляции: искажает границы плит, находит зоны контакта и рассчитывает рельеф
+/// Главная функция симуляции: искажает границы плит, находит зоны контакта, рассчитывает рельеф и породы
 pub fn simulate_tectonics(
     topology: &WorldTopology,
     geology: &mut GeologyLayer,
     noise: &impl NoiseFn<f64, 3>,
     config: &TectonicsConfig,
 ) {
+    let num_cells = topology.cells.len();
+    if geology.lithology.len() != num_cells {
+        geology.lithology.resize(num_cells, RockType::default());
+    }
+
     let plates = &geology.plates;
     let volcanoes = &geology.volcanoes;
-    let mut ridge_cells = vec![false; topology.cells.len()];
+    let mut ridge_cells = vec![false; num_cells];
 
     for (cell_id, cell) in topology.cells.iter().enumerate() {
         let dir = cell.center;
 
         // 1. Искажение координат (Domain Warping).
-        // Применяем 3D-шум к вектору, чтобы разломы между плитами выглядели рваными, а не прямыми линиями.
         let p = dir.as_dvec3() * config.warp_scale;
         let offsets = &config.warp_offsets;
 
@@ -129,27 +130,23 @@ pub fn simulate_tectonics(
         let warped_dir = (dir + warp_noise).normalize();
 
         // 2. Находим 3 ближайшие плиты для текущей ячейки (триада).
-        // Это необходимо, чтобы избежать багов с резкими обрывами в точках схождения трех плит (Тройных стыках).
         let (p1_idx, p2_idx, p3_idx, dist_1, dist_2, dist_3) =
             find_closest_plates(warped_dir, plates);
-        geology.plate_ids[cell_id] = p1_idx; // Ячейка принадлежит самой близкой (первой) плите
+        geology.plate_ids[cell_id] = p1_idx;
 
         let p1 = &plates[p1_idx];
         let p2 = &plates[p2_idx];
         let p3 = &plates[p3_idx];
 
-        // Дистанция от ячейки до границ с плитой 2 и плитой 3
         let bd2 = dist_2 - dist_1;
         let bd3 = dist_3 - dist_1;
 
         // 3. Вычисляем веса методом обратного расстояния (IDW).
-        // Чем ближе мы ко второй или третьей плите, тем сильнее их влияние на итоговую высоту в этой точке.
         let eps = config.weight_epsilon;
         let w2 = 1.0 / (bd2.powi(2) + eps);
         let w3 = 1.0 / (bd3.powi(2) + eps);
         let w_sum = w2 + w3;
 
-        // Нормализуем веса, чтобы в сумме они давали 1.0
         let weight2 = w2 / w_sum;
         let weight3 = w3 / w_sum;
 
@@ -157,7 +154,6 @@ pub fn simulate_tectonics(
         let mut h2 = calculate_base_elevation(p1, p2, bd2, config);
         let mut h3 = calculate_base_elevation(p1, p3, bd3, config);
 
-        // Расчет линейной скорости коры в этой точке для 1-й плиты (векторное произведение оси вращения на позицию)
         let v1 = p1.euler_pole.cross(dir) * p1.angular_vel;
 
         // 5. Генерируем макро-шум, из которого будут лепиться горы и неровности
@@ -170,12 +166,20 @@ pub fn simulate_tectonics(
         let raw_m_noise = noise.get(m_coords) as f32;
         let m_noise = config.boundary_noise_base + raw_m_noise * config.boundary_noise_amp;
 
+        let mut f2_val = 0.0_f32;
+        let mut conv2_val = 0.0_f32;
+        let mut f3_val = 0.0_f32;
+        let mut conv3_val = 0.0_f32;
+
         // 6. Граница с плитой 2
         if bd2 < config.edge_threshold {
             let f2 = (1.0 - bd2 / config.edge_threshold).clamp(0.0, 1.0);
             let normal2 = (p2.center_dir - p1.center_dir).normalize_or_zero();
             let v2 = p2.euler_pole.cross(dir) * p2.angular_vel;
             let convergence2 = (v1 - v2).dot(normal2) / config.convergence_ref_speed;
+
+            f2_val = f2;
+            conv2_val = convergence2;
 
             if p1.plate_type == PlateType::Oceanic
                 && p2.plate_type == PlateType::Oceanic
@@ -200,6 +204,9 @@ pub fn simulate_tectonics(
             let normal3 = (p3.center_dir - p1.center_dir).normalize_or_zero();
             let v3 = p3.euler_pole.cross(dir) * p3.angular_vel;
             let convergence3 = (v1 - v3).dot(normal3) / config.convergence_ref_speed;
+
+            f3_val = f3;
+            conv3_val = convergence3;
 
             if p1.plate_type == PlateType::Oceanic
                 && p3.plate_type == PlateType::Oceanic
@@ -238,10 +245,8 @@ pub fn simulate_tectonics(
             let dot_prod = warped_dir.dot(v.center).clamp(-1.0, 1.0);
             let d = dot_prod.acos();
 
-            // Если ячейка находится внутри радиуса вулкана
             if d < v.radius {
                 let f = 1.0 - (d / v.radius);
-                // Профиль (powi) задает форму конуса (вогнутые склоны)
                 let profile = f.powi(config.volcano_profile_pow);
                 let local_h = v.height * profile * v_noise_mod;
                 max_volcano_h = max_volcano_h.max(local_h);
@@ -254,7 +259,6 @@ pub fn simulate_tectonics(
 
         geology.volcano_mask[cell_id] = is_volcano;
 
-        // Вулканы "пробивают" базовый рельеф материка/океана
         let h = h1.max(h1 + max_volcano_h);
 
         // 10. Финальный проход: накладываем мелкую текстуру (детализацию) на всю планету
@@ -268,6 +272,24 @@ pub fn simulate_tectonics(
 
         geology.elevations[cell_id] =
             (h + detail_noise * config.detail_noise_amp).max(config.elevation_min_clamp);
+
+        // 11. Первичная коренная литология (по доминирующей границе и расстоянию в радианах)
+        let (dom_t2, dom_f, dom_conv) =
+            if f3_val * weight3 * conv3_val.abs() > f2_val * weight2 * conv2_val.abs() {
+                (p3.plate_type, f3_val, conv3_val)
+            } else {
+                (p2.plate_type, f2_val, conv2_val)
+            };
+
+        geology.lithology[cell_id] = classify_base_lithology(
+            p1.plate_type,
+            dom_t2,
+            dom_f,
+            dom_conv,
+            raw_m_noise,
+            detail_noise,
+            config,
+        );
     }
 
     apply_oceanic_crust_cooling(topology, &mut geology.elevations, &ridge_cells, config);
@@ -280,10 +302,241 @@ pub fn simulate_tectonics(
         config.slope_erosion_factor,
         config.diffusion_max_strength,
     );
+
+    // 12. Наложение поверхностных слоев: вулканизм, осадочные бассейны, карбонатные шельфы и абиссальные илы
+    apply_lithology_overlays(topology, geology, &ridge_cells, config);
 }
 
-/// Находит ровно 3 ближайшие плиты к данной точке. Это необходимо для правильной интерполяции
-/// тройных узлов, где 4-е плиты нестабильны и не встречаются в природе.
+/// Определяет базовую породу фундамента по 7 типам границ и удалению вглубь плиты
+fn classify_base_lithology(
+    t1: PlateType,
+    t2: PlateType,
+    f: f32,
+    convergence: f32,
+    raw_m_noise: f32,
+    detail_noise: f32,
+    config: &TectonicsConfig,
+) -> RockType {
+    // 1. Глубоко внутри плиты или вдоль спокойного трансформного разлома
+    if f <= 0.05 || convergence.abs() < 0.08 {
+        return match t1 {
+            PlateType::Oceanic => RockType::OceanicBasalt,
+            PlateType::Continental => {
+                // Древний континентальный кратон: выходы кристаллического щита (гнейсы/граниты)
+                // на возвышениях фундамента и осадочный чехол (песчаники) на платформе
+                let basement_exposure = raw_m_noise + detail_noise * 0.35;
+                if basement_exposure > 0.52 {
+                    RockType::Granite
+                } else if basement_exposure > 0.18 {
+                    RockType::GneissSchist
+                } else {
+                    RockType::Sandstone
+                }
+            }
+        };
+    }
+
+    // Слегка возмущаем координату `f` шумом, чтобы границы поясов пород были естественными, а не линейными
+    let f_noisy = (f + raw_m_noise * 0.10 + detail_noise * 0.06).clamp(0.0, 1.0);
+
+    match (t1, t2) {
+        // --- 1. СБЛИЖЕНИЕ КОНТИНЕНТАЛЬНЫХ (Коллизия: гранит -> гнейс/сланец -> песчаник) ---
+        (PlateType::Continental, PlateType::Continental) if convergence > 0.0 => {
+            if f_noisy > 0.62 {
+                if detail_noise > -0.20 {
+                    RockType::Granite
+                } else {
+                    RockType::GneissSchist
+                }
+            } else if f_noisy > 0.25 {
+                RockType::GneissSchist
+            } else {
+                RockType::Sandstone
+            }
+        }
+
+        // --- 2. СУБДУКЦИЯ, КОНТИНЕНТАЛЬНАЯ СТОРОНА (Магматическая дуга Андского типа) ---
+        (PlateType::Continental, PlateType::Oceanic) if convergence > 0.0 => {
+            // Используем то же смещение дуги от желоба, что и в calculate_boundary_elevation
+            let offset_zone = f - config.co_col_offset;
+            let m_zone = (offset_zone * config.co_col_scale).clamp(0.0, 1.0);
+            let arc_profile = (m_zone * PI).sin().powi(2);
+
+            if arc_profile > 0.50 {
+                // Осевая зона хребта: стратовулканы (андезит) и вскрытые плутоны (гранит)
+                if raw_m_noise + detail_noise * 0.4 > 0.05 {
+                    RockType::Andesite
+                } else {
+                    RockType::Granite
+                }
+            } else if arc_profile > 0.15 {
+                // Склоны дуги: метаморфический пояс
+                RockType::GneissSchist
+            } else {
+                // Преддуговой прогиб у берега и предгорный прогиб в тылу дуги
+                RockType::Sandstone
+            }
+        }
+
+        // --- 3. СУБДУКЦИЯ, ОКЕАНСКАЯ СТОРОНА (Глубоководный жёлоб) ---
+        (PlateType::Oceanic, PlateType::Continental) if convergence > 0.0 => {
+            let offset_dist = (f - config.oc_col_center).abs();
+            let trench_profile = (1.0 - offset_dist * config.oc_col_scale).clamp(0.0, 1.0);
+
+            if trench_profile > 0.25 {
+                RockType::PelagicSediment // Кремнистые и глинистые осадки жёлоба
+            } else {
+                RockType::OceanicBasalt
+            }
+        }
+
+        // --- 4. СБЛИЖЕНИЕ ОКЕАНИЧЕСКИХ (Островная вулканическая дуга) ---
+        (PlateType::Oceanic, PlateType::Oceanic) if convergence > 0.0 => {
+            if f_noisy > 0.38 {
+                RockType::Andesite
+            } else {
+                RockType::OceanicBasalt
+            }
+        }
+
+        // --- 5. РАСХОЖДЕНИЕ КОНТИНЕНТАЛЬНЫХ (Континентальный рифт) ---
+        (PlateType::Continental, PlateType::Continental) if convergence < 0.0 => {
+            if f_noisy > 0.58 {
+                // Дно рифтового грабена: базальтовые излияния и озерно-речные пески
+                if detail_noise > -0.25 {
+                    RockType::FloodBasalt
+                } else {
+                    RockType::Sandstone
+                }
+            } else if f_noisy > 0.25 {
+                // Поднятые плечи рифта (горсты)
+                RockType::GneissSchist
+            } else {
+                RockType::Sandstone
+            }
+        }
+
+        // --- 6. РАСХОЖДЕНИЕ ОКЕАН-КОНТИНЕНТ (Пассивная континентальная окраина) ---
+        (PlateType::Continental, PlateType::Oceanic)
+        | (PlateType::Oceanic, PlateType::Continental)
+            if convergence < 0.0 =>
+        {
+            if f_noisy > 0.45 {
+                RockType::ShaleClay
+            } else {
+                RockType::Sandstone
+            }
+        }
+
+        // --- 7. РАСХОЖДЕНИЕ ОКЕАНИЧЕСКИХ (Срединно-океанический хребет) ---
+        (PlateType::Oceanic, PlateType::Oceanic) if convergence < 0.0 => {
+            RockType::OceanicBasalt // Свежий базальт MORB
+        }
+
+        _ => match t1 {
+            PlateType::Oceanic => RockType::OceanicBasalt,
+            PlateType::Continental => RockType::GneissSchist,
+        },
+    }
+}
+
+/// Накладывает вулканизм, осадочные бассейны и карбонатные платформы поверх готового рельефа
+fn apply_lithology_overlays(
+    topology: &WorldTopology,
+    geology: &mut GeologyLayer,
+    ridge_cells: &[bool],
+    config: &TectonicsConfig,
+) {
+    let num_cells = topology.cells.len();
+
+    for i in 0..num_cells {
+        let elev = geology.elevations[i];
+        let plate_type = geology.plates[geology.plate_ids[i]].plate_type;
+        let lat_abs = topology.cells[i].lat_lon.x.abs();
+
+        // 1. Вулканизм горячих точек (мантийных плюмов) перекрывает коренные породы
+        if geology.volcano_mask[i] {
+            geology.lithology[i] = if plate_type == PlateType::Oceanic {
+                RockType::FloodBasalt // Океанические щитовые вулканы (Гавайский тип)
+            } else if elev > config.cont_base_height + 0.14 {
+                RockType::Andesite    // Высокие континентальные стратовулканы / кальдеры
+            } else {
+                RockType::FloodBasalt // Континентальные базальтовые плато (траппы)
+            };
+            continue;
+        }
+
+        // Вычисляем локальный перепад высот (уклон) по соседям
+        let neighbors = &topology.cells[i].neighbors;
+        let mut max_slope = 0.0_f32;
+        for &n_id in neighbors {
+            let diff = (elev - geology.elevations[n_id]).abs();
+            if diff > max_slope {
+                max_slope = diff;
+            }
+        }
+
+        // 2. Морское дно (Ниже уровня океана)
+        if elev <= 0.0 {
+            // Тёплые мелководные шельфы (тропики и субтропики до ~35° широты) -> Известняки (рифовые/карбонатные банки)
+            if elev > -0.09
+                && lat_abs < 0.62
+                && !ridge_cells[i]
+                && geology.lithology[i] != RockType::Andesite
+            {
+                geology.lithology[i] = RockType::Limestone;
+            }
+            // Глубокие старые абиссальные равнины вдали от СОХ -> Пелагические осадки
+            else if elev < config.ocean_base_height - 0.05
+                && !ridge_cells[i]
+                && geology.lithology[i] == RockType::OceanicBasalt
+            {
+                geology.lithology[i] = RockType::PelagicSediment;
+            }
+            continue;
+        }
+
+        // 3. Суша (Выше уровня океана)
+        // Если участок бывшего морского дна поднялся выше уровня моря, превращаем илы/MORB в осадочные породы суши
+        if geology.lithology[i] == RockType::PelagicSediment
+            || geology.lithology[i] == RockType::OceanicBasalt
+        {
+            geology.lithology[i] = if lat_abs < 0.60 && elev < config.cont_base_height * 0.8 {
+                RockType::Limestone
+            } else {
+                RockType::ShaleClay
+            };
+        }
+
+        // Карбонатные платформы на тёплых прибрежных равнинах с малым уклоном
+        if elev < config.cont_base_height * 0.75
+            && max_slope < 0.018
+            && lat_abs < 0.58
+            && matches!(geology.lithology[i], RockType::Sandstone | RockType::ShaleClay)
+        {
+            // Чередуем известняковые плато и терригенные осадки по широте/долготе без лишнего шума
+            let dir = topology.cells[i].center;
+            let wave = (dir.x * 11.0).sin() * (dir.z * 11.0).cos();
+            if wave > 0.15 {
+                geology.lithology[i] = RockType::Limestone;
+                continue;
+            }
+        }
+
+        // Осадконакопление в плоских низинах и межгорных котловинах
+        if elev < config.cont_base_height * 0.90 && max_slope < 0.014 {
+            if max_slope < 0.006 && elev < config.cont_base_height * 0.55 {
+                // Плоские низменности — глинистые отложения
+                geology.lithology[i] = RockType::ShaleClay;
+            } else if matches!(geology.lithology[i], RockType::Granite | RockType::GneissSchist) {
+                // Пологие равнины поверх древнего фундамента перекрываются песчаным осадочным чехлом
+                geology.lithology[i] = RockType::Sandstone;
+            }
+        }
+    }
+}
+
+/// Находит ровно 3 ближайшие плиты к данной точке.
 fn find_closest_plates(dir: Vec3, plates: &[Plate]) -> (usize, usize, usize, f32, f32, f32) {
     let mut dist_1 = f32::MAX;
     let mut dist_2 = f32::MAX;
@@ -361,13 +614,9 @@ fn calculate_boundary_elevation(
     mountain_noise: f32,
     config: &TectonicsConfig,
 ) -> f32 {
-    // Экспонента усиливает влияние экстремально быстрых столкновений
-    // и плавно гасит слабые трения плит
     let conv_factor = convergence.clamp(0.0, 1.0).exp();
 
     match (t1, t2) {
-        // --- 1. СЖАТИЕ (Конвергенция) ---
-        // Коллизия материков (Например: Гималаи, Тибет) - высокие складчатые горы и плато
         (PlateType::Continental, PlateType::Continental) if convergence > 0.0 => {
             let angle = f * PI * config.cc_col_freq;
             let shape = angle.sin().powi(2);
@@ -376,7 +625,6 @@ fn calculate_boundary_elevation(
             shape * blend * config.cc_col_amp * mountain_noise * conv_factor
         }
 
-        // Субдукция: сторона Континента (Например: Анды) - сдвиг гор вглубь суши от линии разлома
         (PlateType::Continental, PlateType::Oceanic) if convergence > 0.0 => {
             let offset_zone = f - config.co_col_offset;
             let m_zone = (offset_zone * config.co_col_scale).clamp(0.0, 1.0);
@@ -384,7 +632,6 @@ fn calculate_boundary_elevation(
             (m_zone * PI).sin().powi(2) * config.co_col_amp * mountain_noise * conv_factor
         }
 
-        // Субдукция: сторона Океана - глубоководный желоб, в который прогибается заныривающая плита
         (PlateType::Oceanic, PlateType::Continental) if convergence > 0.0 => {
             let offset_dist = (f - config.oc_col_center).abs();
             let profile = (1.0 - offset_dist * config.oc_col_scale).clamp(0.0, 1.0);
@@ -392,13 +639,10 @@ fn calculate_boundary_elevation(
             -profile * config.oc_col_amp * conv_factor
         }
 
-        // Субдукция двух океанов - вулканические островные дуги
         (PlateType::Oceanic, PlateType::Oceanic) if convergence > 0.0 => {
             (f * PI).sin() * config.oo_col_amp * mountain_noise * conv_factor
         }
 
-        // --- 2. РАСТЯЖЕНИЕ (Дивергенция / Спрединг) ---
-        // Рифтогенез континентов (Например: Восточная Африка) - глубокая долина в центре и поднятия по бокам
         (PlateType::Continental, PlateType::Continental) if convergence < 0.0 => {
             let graben = -f.powi(config.cc_rift_graben_pow) * config.cc_rift_graben_amp;
             let horsts = (f * PI).sin() * config.cc_rift_horst_amp;
@@ -406,7 +650,6 @@ fn calculate_boundary_elevation(
             (horsts + graben) * config.cc_rift_total_amp * mountain_noise * conv_factor
         }
 
-        // Переходная зона (разлом континента и океана) - плавный спуск к воде
         (PlateType::Continental, PlateType::Oceanic) if convergence < 0.0 => {
             let offset_zone = f - config.co_rift_offset;
             let m_zone = (offset_zone * config.co_rift_scale).clamp(0.0, 1.0);
@@ -414,7 +657,6 @@ fn calculate_boundary_elevation(
             -(m_zone * PI).sin().powi(2) * config.co_rift_amp * mountain_noise * conv_factor
         }
 
-        // Спрединг океанов (Срединно-океанический хребет) - осевая щель и подводные валы
         (PlateType::Oceanic, PlateType::Oceanic) if convergence < 0.0 => {
             let axial_rift = -f.powi(config.oo_rift_axial_pow) * config.oo_rift_axial_amp;
             let ridges = (f * PI).sin() * config.oo_rift_ridge_amp;
@@ -423,7 +665,6 @@ fn calculate_boundary_elevation(
             (ridges + axial_rift) * config.oo_rift_total_amp * noise_mod * conv_factor
         }
 
-        // Трансформный разлом (скольжение) - не образует выраженного рельефа
         _ => 0.0,
     }
 }
@@ -501,7 +742,6 @@ fn apply_oceanic_crust_cooling(
 }
 
 /// Создает цепочки вулканов, вращая статичные мантийные плюмы (горячие точки) по дуге
-/// вдоль направления движения плиты, создавая эффект "Гавайских островов" или супервулканов.
 pub fn generate_hotspots(
     rng: &mut impl RngExt,
     plates: &[Plate],
@@ -510,7 +750,6 @@ pub fn generate_hotspots(
     let mut volcanoes = Vec::new();
 
     for _ in 0..config.hotspot_count {
-        // Выбираем статичную точку в мантии планеты
         let plume_pos = Vec3::new(
             rng.random_range(-1.0..1.0),
             rng.random_range(-1.0..1.0),
@@ -522,7 +761,6 @@ pub fn generate_hotspots(
             continue;
         }
 
-        // Находим, какая из тектонических плит сейчас проплывает над этим плюмом
         let mut best_dist = f32::MAX;
         let mut plate_idx = 0;
 
@@ -537,27 +775,22 @@ pub fn generate_hotspots(
 
         let plate = &plates[plate_idx];
         let chain_length = rng.random_range(config.hotspot_chain_min..config.hotspot_chain_max);
-
-        // Фиксированный шаг по времени (гарантирует, что на быстрых плитах цепочка островов
-        // будет вытянута, а на медленных они сольются в один крупный массив).
         let time_step = config.hotspot_time_step;
 
         for step in 0..chain_length {
-            // Вращаем точку плюма назад по вектору движения плиты
             let angle = plate.angular_vel * (step as f32) * time_step;
             let rotation = Quat::from_axis_angle(plate.euler_pole, angle);
             let volcano_pos = rotation * plume_pos;
 
-            // Расчет эрозии: старые вулканы (большой step) становятся ниже и расползаются вширь
             let age_factor = 1.0 - (step as f32 / chain_length as f32);
             let height_base =
                 rng.random_range(config.hotspot_height_min..config.hotspot_height_max);
 
             let height = height_base * age_factor.powf(config.hotspot_erosion_pow);
             let radius = (config.hotspot_radius_base
-            + height * config.volcano_radius_per_height
-            + config.hotspot_radius_growth * (1.0 - age_factor))
-            .max(config.volcano_radius_min);
+                + height * config.volcano_radius_per_height
+                + config.hotspot_radius_growth * (1.0 - age_factor))
+                .max(config.volcano_radius_min);
 
             volcanoes.push(Volcano {
                 center: volcano_pos,

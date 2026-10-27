@@ -102,7 +102,7 @@ impl SolverPrecalc {
             cos_lat.push(c_lat);
 
             let e = pos.cross(Vec3::Y).normalize_or_zero();
-            let n = pos.cross(e).normalize_or_zero();
+            let n = e.cross(pos).normalize_or_zero();
             east.push(e);
             north.push(n);
 
@@ -134,12 +134,12 @@ impl SolverPrecalc {
             };
             bathymetry_shift.push(b_shift);
 
-            let cor_ang = -s_lat * config.coriolis_strength;
+            let cor_ang = s_lat * config.coriolis_strength;
             let (cs, ss) = cor_ang.sin_cos();
             coriolis_cos.push(cs);
             coriolis_sin.push(ss);
 
-            let ek_ang = -s_lat * 0.75;
+            let ek_ang = s_lat * 0.75;
             let (ce, se) = ek_ang.sin_cos();
             ekman_cos.push(ce);
             ekman_sin.push(se);

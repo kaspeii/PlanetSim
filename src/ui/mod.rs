@@ -8,6 +8,7 @@ use crate::{
         climate::climate_ui::draw_climate_tab_system,
         generator::{GenerationRequest, GenerationTask},
         tectonics::{GeologyLayer, tectonics_ui::draw_tectonics_tab_system},
+        hydrology::hydrology_ui::draw_hydrology_tab_system,
     },
     viewport::{Globe, MapOverlay, ViewportViewConfig},
     world::{
@@ -194,6 +195,7 @@ fn render_ui_shell(world: &mut World) -> Result {
                         recolor |= ui.radio_value(&mut *overlay, MapOverlay::SpaceView, "Базовый").changed();
                         recolor |= ui.radio_value(&mut *overlay, MapOverlay::Elevation, "Рельеф").changed();
                         recolor |= ui.radio_value(&mut *overlay, MapOverlay::TectonicPlates, "Тектонические плиты").changed();
+                        recolor |= ui.radio_value(&mut *overlay, MapOverlay::Lithology, "Породы").changed();
                         recolor |= ui.radio_value(&mut *overlay, MapOverlay::Temperature, "Температура").changed();
                         recolor |= ui.radio_value(&mut *overlay, MapOverlay::Humidity, "Влажность").changed();
                         recolor |= ui.radio_value(&mut *overlay, MapOverlay::Precipitation, "Осадки").changed();
@@ -201,6 +203,7 @@ fn render_ui_shell(world: &mut World) -> Result {
                         recolor |= ui.radio_value(&mut *overlay, MapOverlay::Continentality, "Континентальность").changed();
                         recolor |= ui.radio_value(&mut *overlay, MapOverlay::Pressure, "Давление").changed();
                         recolor |= ui.radio_value(&mut *overlay, MapOverlay::Winds, "Ветра").changed();
+                        recolor |= ui.radio_value(&mut *overlay, MapOverlay::Soils, "Почвы").changed();
                     });
 
                     ui.separator();
@@ -210,6 +213,7 @@ fn render_ui_shell(world: &mut World) -> Result {
                         if ui.checkbox(&mut view_cfg.flat_water, "Плоский океан").changed() {
                             reposition = true;
                         }
+                        ui.checkbox(&mut view_cfg.show_rivers, "3D-русла рек");
                         ui.checkbox(&mut view_cfg.show_wind_arrows, "3D-стрелки ветров");
                         ui.checkbox(&mut view_cfg.show_ocean_currents, "3D-стрелки течений");
                     });
@@ -239,7 +243,7 @@ fn render_ui_shell(world: &mut World) -> Result {
                             let _ = world.run_system_cached_with(draw_climate_tab_system, ui);
                         }
                         ActiveTab::Hydrology => {
-                            ui.label("Настройки рек (в разработке)");
+                            let _ = world.run_system_cached_with(draw_hydrology_tab_system, ui);
                         }
                         ActiveTab::Civilization => {
                             ui.label("Настройки цивилизаций (в разработке)");

@@ -14,13 +14,11 @@ use rand::RngExt;
 
 use crate::{
     domains::{
-        climate::{ClimateConfig, climate_data::ClimateLayer, simulate_all_seasons},
-        tectonics::{
+        climate::{ClimateConfig, climate_data::ClimateLayer, simulate_all_seasons}, hydrology::{HydrologyConfig, HydrologyLayer, simulate_hydrology}, tectonics::{
             GeologyLayer, TectonicsConfig,
             generate_hotspots, generate_plates, simulate_tectonics,
-        },
-    },
-    world::{
+        }
+    }, world::{
         pipeline::{PipelineStage, WorldPipeline},
         topology::WorldTopology,
     },
@@ -40,25 +38,20 @@ impl GenerationRequest {
 pub struct GenerationTask {
     pub step: Arc<AtomicU8>,
     pub total_steps: u8,
-    pub task: Task<(Option<GeologyLayer>, ClimateLayer)>,
+    pub task: Task<(Option<GeologyLayer>, Option<ClimateLayer>, HydrologyLayer)>,
 }
 
 impl GenerationTask {
-    /// Возвращает текст текущего этапа и прогресс от 0.0 до 1.0 для UI
     pub fn status(&self) -> (&'static str, f32) {
         let code = self.step.load(Ordering::Relaxed);
         let desc = match code {
             1 => "Формирование тектонических плит и вулканов...",
-            2 => "Симуляция движения коры и орографии...",
-            3 => "Расчет сезонов, ветров, течений и 3D-стрелок...",
+            2 => "Симуляция движения коры и литологии...",
+            3 => "Расчет сезонов, ветров, течений и осадков...",
+            4 => "Формирование почв (CLORPT) и водного баланса...",
             _ => "Подготовка потоков...",
         };
-        // При пересчете только климата шаг сразу 3 из 1
-        let progress = if self.total_steps == 1 {
-            0.5
-        } else {
-            (code as f32 / self.total_steps as f32).clamp(0.0, 1.0)
-        };
+        let progress = (code as f32 / self.total_steps.max(1) as f32).clamp(0.0, 1.0);
         (desc, progress)
     }
 }
@@ -71,6 +64,8 @@ pub fn spawn_generation_task(
     geology_res: Res<GeologyLayer>,
     t_config: Res<TectonicsConfig>,
     c_config: Res<ClimateConfig>,
+    climate_res: Res<ClimateLayer>,
+    h_config: Res<HydrologyConfig>,
 ) {
     let Some(stage) = req.0.take() else { return; };
 
@@ -84,21 +79,34 @@ pub fn spawn_generation_task(
     let t_config = (*t_config).clone();
     let c_config = (*c_config).clone();
 
+    let step = Arc::new(AtomicU8::new(0));
+    let step_clone = step.clone();
+
+    let h_config = (*h_config).clone();
+
     let existing_geology = if stage > PipelineStage::Tectonics {
         Some((*geology_res).clone())
     } else {
         None
     };
 
-    let step = Arc::new(AtomicU8::new(0));
-    let step_clone = step.clone();
-    let total_steps = if existing_geology.is_some() { 1 } else { 3 };
+    let existing_climate = if stage > PipelineStage::Climate {
+        Some((*climate_res).clone())
+    } else {
+        None
+    };
+
+    let total_steps = match stage {
+        PipelineStage::Tectonics => 4,
+        PipelineStage::Climate => 2,
+        PipelineStage::Hydrology => 1,
+    };
 
     let task = thread_pool.spawn(async move {
-        let (geology_for_climate, new_geology) = if let Some(geo) = existing_geology {
+        // Шаг 1–2: Тектоника (если нужна)
+        let (geology_ref, new_geology) = if let Some(geo) = existing_geology {
             (geo, None)
         } else {
-            // Шаг 1: Плиты и горячие точки
             step_clone.store(1, Ordering::Relaxed);
             let mut rng = rand::rng();
             let seed = rng.random_range(0..=u32::MAX);
@@ -109,7 +117,6 @@ pub fn spawn_generation_task(
             geology.plates = generate_plates(&mut rng, &t_config);
             geology.volcanoes = generate_hotspots(&mut rng, &geology.plates, &t_config);
 
-            // Шаг 2: Тектоника и рельеф
             step_clone.store(2, Ordering::Relaxed);
             simulate_tectonics(&topology, &mut geology, &perlin, &t_config);
 
@@ -117,15 +124,26 @@ pub fn spawn_generation_task(
             (geo_clone, Some(geology))
         };
 
-        // Шаг 3: Климат и кэш стрелок
-        step_clone.store(3, Ordering::Relaxed);
-        let mut climate = ClimateLayer::default();
-        climate.resize(topology.cells.len());
-        simulate_all_seasons(&topology, &geology_for_climate, &mut climate, &c_config);
+        // Шаг 3: Климат (если нужен)
+        let (climate_ref, new_climate) = if let Some(clim) = existing_climate {
+            (clim, None)
+        } else {
+            step_clone.store(3, Ordering::Relaxed);
+            let mut climate = ClimateLayer::default();
+            climate.resize(topology.cells.len());
+            simulate_all_seasons(&topology, &geology_ref, &mut climate, &c_config);
 
-        (new_geology, climate)
+            let clim_clone = climate.clone();
+            (clim_clone, Some(climate))
+        };
+
+        // Шаг 4: Почвы и Гидрология
+        step_clone.store(4, Ordering::Relaxed);
+        let mut hydrology = HydrologyLayer::default();
+        simulate_hydrology(&topology, &geology_ref, &climate_ref, &mut hydrology, &h_config);
+
+        (new_geology, new_climate, hydrology)
     });
-
     commands.spawn(GenerationTask {
         step,
         total_steps,
@@ -138,19 +156,25 @@ pub fn handle_generation_task(
     mut task_query: Query<(Entity, &mut GenerationTask)>,
     mut geology_res: ResMut<GeologyLayer>,
     mut climate_res: ResMut<ClimateLayer>,
+    mut hydrology_res: ResMut<HydrologyLayer>,
     mut pipeline: ResMut<WorldPipeline>,
 ) {
     let Some((entity, mut gen_task)) = task_query.iter_mut().next() else { return; };
 
-    if let Some((opt_geology, gen_climate)) = future::block_on(future::poll_once(&mut gen_task.task)) {
+    if let Some((opt_geology, opt_climate, gen_hydrology)) =
+        future::block_on(future::poll_once(&mut gen_task.task))
+    {
         if let Some(gen_geology) = opt_geology {
             *geology_res = gen_geology;
             pipeline.rebuild_mesh = true;
         } else {
             pipeline.recolor_mesh = true;
         }
-
-        *climate_res = gen_climate;
+        if let Some(gen_climate) = opt_climate {
+            *climate_res = gen_climate;
+        }
+        *hydrology_res = gen_hydrology;
+        pipeline.rebuild_rivers = true;
         commands.entity(entity).despawn();
     }
 }

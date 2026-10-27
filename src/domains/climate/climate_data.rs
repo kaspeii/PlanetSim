@@ -37,7 +37,7 @@ impl SeasonalSnapshot {
     }
 }
 
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Clone)]
 pub struct ClimateLayer {
     pub temperatures: Vec<f32>,
     pub humidity: Vec<f32>,

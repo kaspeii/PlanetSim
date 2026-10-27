@@ -1,8 +1,9 @@
 // src/domains/mod.rs
 
-pub mod climate;
 pub mod generator;
 pub mod tectonics;
+pub mod climate;
+pub mod hydrology;
 
 use bevy::prelude::*;
 use generator::{GenerationRequest, handle_generation_task, spawn_generation_task};
@@ -12,7 +13,7 @@ pub struct DomainsPlugin;
 impl Plugin for DomainsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GenerationRequest>()
-            .add_plugins((tectonics::TectonicsPlugin, climate::ClimatePlugin))
+            .add_plugins((tectonics::TectonicsPlugin, climate::ClimatePlugin, hydrology::HydrologyPlugin))
             .add_systems(Startup, warmup_gizmos_shader)
             .add_systems(Update, (spawn_generation_task, handle_generation_task));
     }

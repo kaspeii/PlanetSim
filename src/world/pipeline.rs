@@ -13,6 +13,7 @@ pub enum PipelineSet {
 pub enum PipelineStage {
     Tectonics,
     Climate,
+    Hydrology,
     // В будущем: Hydrology, Biomes
 }
 
@@ -24,4 +25,6 @@ pub struct WorldPipeline {
     pub reposition_mesh: bool,
     /// Быстрая перекраска меша (после смены климата, сезона или слоя карты)
     pub recolor_mesh: bool,
+    /// Пересборка 3D-лент речной сети
+    pub rebuild_rivers: bool,
 }
