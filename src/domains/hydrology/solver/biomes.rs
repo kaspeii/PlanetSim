@@ -105,8 +105,8 @@ pub(super) fn compute_biomes(
         let moisture_idx = (sm / (1.0 - sm * 0.68).max(0.15)).clamp(0.0, 2.5);
 
         // Оцениваем, сколько влаги пришло исключительно от дождей (без рек)
-        let pet = ((mean_temp + 10.0).max(2.0) * 0.020 * config.aridity_evap_scale).max(0.03);
-        let rain_only_sm = annual_precip / (annual_precip + pet * 0.85);
+        let pet = ((mean_temp + 10.0).max(2.0) * 0.013 * config.aridity_evap_scale).max(0.025);
+        let rain_only_sm = annual_precip / (annual_precip + pet * 0.7);
         let river_moisture_surplus = (sm - rain_only_sm).max(0.0);
 
         let is_major_river = flow >= config.river_threshold * config.riparian_river_multiplier;

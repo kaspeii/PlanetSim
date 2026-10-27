@@ -220,16 +220,16 @@ pub(super) fn compute_rivers(
         // 1. Климатическая влага, удержанная почвой (зависит от осадков, испаряемости PET и влагоемкости WHC)
         let whc = hydrology.water_capacity[i];
         let [sand, _silt, clay] = hydrology.soil_texture[i];
-        let pet = ((mean_temp + 10.0).max(1.5) * 0.020 * config.aridity_evap_scale).max(0.03);
+        let pet = ((mean_temp + 10.0).max(1.5) * 0.013 * config.aridity_evap_scale).max(0.025);
 
         // Способность почвы удерживать дождевую влагу между дождями:
         // суглинки и глины (высокий WHC) держат воду, чистые пески и карст теряют быстрее
         let retention_mod = 1.0 + (whc - 0.30) * config.soil_biome_influence
-            - (sand - 0.45).max(0.0) * 0.40 * config.soil_biome_influence;
+            - (sand - 0.45).max(0.0) * 0.35 * config.soil_biome_influence;
         let effective_infiltration =
-            (annual_precip * retention_mod.clamp(0.45, 1.50)) * (1.0 - geology.lithology[i].karst_permeability() * 0.4);
+            (annual_precip * retention_mod.clamp(0.5, 1.50)) * (1.0 - geology.lithology[i].karst_permeability() * 0.35);
 
-        let rain_soil_moisture = effective_infiltration / (effective_infiltration + pet * 0.85);
+        let rain_soil_moisture = effective_infiltration / (effective_infiltration + pet * 0.7);
 
         // 2. Прямое увлажнение почвы рекой в самой клетке русла
         let my_flow = hydrology.flow_accumulation[i];

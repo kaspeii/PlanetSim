@@ -5,9 +5,9 @@ use bevy_egui::{EguiContext, EguiPlugin, EguiPrimaryContextPass, egui};
 
 use crate::{
     domains::{
-        climate::{ClimateConfig, climate_data::ClimateLayer, climate_ui::draw_climate_tab_system},
+        climate::{climate_data::ClimateLayer, climate_ui::draw_climate_tab_system},
         generator::{GenerationRequest, GenerationTask},
-        hydrology::{HydrologyConfig, HydrologyLayer, hydrology_ui::draw_hydrology_tab_system},
+        hydrology::{HydrologyLayer, hydrology_ui::draw_hydrology_tab_system},
         save::{SaveUiState, draw_save_load_windows_system},
         tectonics::{GeologyLayer, tectonics_ui::draw_tectonics_tab_system},
     },

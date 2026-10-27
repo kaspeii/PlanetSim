@@ -27,7 +27,13 @@ pub(super) fn calc_radiative_sea_temp(
 ) -> f32 {
     let albedo_modifier = if geology.elevations[i] <= 0.0 && albedo < config.land_albedo {
         1.0
+    } else if geology.elevations[i] > 0.0 && albedo <= 0.45 {
+        // Для бесснежной суши (леса vs пустыни) разница альбедо компенсируется
+        // затратами тепла на транспирацию (леса охлаждаются испарением, а пустыни греют воздух),
+        // поэтому муссонный прогрев материка не должен гаснуть на 2-м проходе!
+        1.0 - (albedo - config.land_albedo) * 0.35
     } else {
+        // Для снега и льда (albedo > 0.45) работает полное отражение солнечного света
         (1.0 - albedo) / (1.0 - config.land_albedo)
     };
     let effective_insolation = base_insolation * albedo_modifier;
@@ -39,7 +45,7 @@ pub(super) fn calc_radiative_sea_temp(
     if geology.elevations[i] > 0.0 {
         let cont_factor = 1.0
             - (precalc.moderation[i] / config.base_ocean_moderation.max(0.01)).clamp(0.0, 1.0);
-        raw_temp += cont_factor * (base_insolation - 0.42) * 14.0;
+        raw_temp += cont_factor * (base_insolation - 0.42) * 10.5;
     }
 
     let moderation = precalc.moderation[i];

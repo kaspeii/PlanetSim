@@ -71,7 +71,9 @@ impl SolverPrecalc {
     ) -> Self {
         let num_cells = topology.cells.len();
         let avg_hex_rad = (4.0 * std::f32::consts::PI / num_cells as f32).sqrt();
-        let global_avg = (config.equator_temp + config.pole_temp) / 2.0;
+        // На сфере площадь тропиков (cos(lat)) значительно больше площади полюсов,
+        // поэтому средняя температура поверхности смещена к экватору (~0.68 вместо 0.50)
+        let global_avg = config.pole_temp + (config.equator_temp - config.pole_temp) * 0.68;
         let r = config.marginal_sea_moderation_reduction;
 
         let mut sin_lat = Vec::with_capacity(num_cells);
@@ -104,8 +106,8 @@ impl SolverPrecalc {
             sin_lat.push(s_lat);
             cos_lat.push(c_lat);
 
-            let e = pos.cross(Vec3::Y).normalize_or_zero();
-            let n = e.cross(pos).normalize_or_zero();
+            let e = Vec3::Y.cross(pos).normalize_or_zero();
+            let n = pos.cross(e).normalize_or_zero();
             east.push(e);
             north.push(n);
 
@@ -118,9 +120,9 @@ impl SolverPrecalc {
 
             let annual_lat_insolation = c_lat.max(0.0);
             let ocean_lat_baseline = config.pole_temp
-                + (config.equator_temp - config.pole_temp) * annual_lat_insolation * 0.85;
-            ocean_equilibrium.push(ocean_lat_baseline * 0.82 + global_avg * 0.18);
-            ocean_ref_temp.push(ocean_lat_baseline * 0.65 + global_avg * 0.35);
+                + (config.equator_temp - config.pole_temp) * annual_lat_insolation * 0.94;
+            ocean_equilibrium.push(ocean_lat_baseline * 0.88 + global_avg * 0.12);
+            ocean_ref_temp.push(ocean_lat_baseline * 0.78 + global_avg * 0.22);
 
             let mod_val = if c < 0.0 {
                 config.base_ocean_moderation * (1.0 - r * (1.0 - c.abs()))
@@ -137,13 +139,21 @@ impl SolverPrecalc {
             };
             bathymetry_shift.push(b_shift);
 
-            let cor_ang = s_lat * config.coriolis_strength;
-            let (cs, ss) = cor_ang.sin_cos();
+            // В слое Экмана угол отклонения ветра растет по арктангенсу tan(α) = f / k_f:
+            // уже к 10°–15° широты пассаты поворачивают на 30°–42° на запад, а в средних широтах
+            // угол плавно выходит на плато (~62° над гладким океаном и ~46° над шероховатой сушей,
+            // чтобы над материками ветер втекал по спирали внутрь циклонов, а не дул мимо берегов).
+            let friction_k = if elev <= 0.0 { 3.6 } else { 2.4 };
+            let max_cor_rad = if elev <= 0.0 { 1.12 } else { 0.85 };
+            let cor_ang = (-(s_lat * friction_k * config.coriolis_strength).atan()
+                * (max_cor_rad / std::f32::consts::FRAC_PI_2))
+                .clamp(-1.35, 1.35);
+            let (ss, cs) = cor_ang.sin_cos();
             coriolis_cos.push(cs);
             coriolis_sin.push(ss);
 
-            let ek_ang = s_lat * 0.75;
-            let (ce, se) = ek_ang.sin_cos();
+            let ek_ang = (-(s_lat * 3.2).atan() * 0.65).clamp(-1.2, 1.2);
+            let (se, ce) = ek_ang.sin_cos();
             ekman_cos.push(ce);
             ekman_sin.push(se);
 

@@ -100,7 +100,7 @@ impl Default for ClimateConfig {
             latitudinal_pressure_weight: 0.45,
             thermal_pressure_weight: 0.65,
             wind_speed_multiplier: 12.0,
-            coriolis_strength: 1.05,
+            coriolis_strength: 3.05,
             mountain_wind_barrier: 8.0,
 
             heat_advection_strength: 0.75,

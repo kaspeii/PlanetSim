@@ -219,8 +219,9 @@ pub(super) fn compute_ocean_currents(
             grad_p = (grad_p / cell.neighbors.len() as f32) * 0.5;
         }
 
-        let sign = precalc.sin_lat[i].signum();
-        let geostrophic_current = pos.cross(grad_p) * sign * config.geostrophic_multiplier;
+        let s = precalc.sin_lat[i];
+        let sign = s / (s.abs() + 0.03);
+        let geostrophic_current = grad_p.cross(pos) * sign * config.geostrophic_multiplier;
 
         let mut current_3d = wind_current * 0.4 + geostrophic_current * 0.6;
 

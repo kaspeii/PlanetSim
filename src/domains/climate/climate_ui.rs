@@ -87,7 +87,7 @@ pub fn draw_climate_tab_system(
         egui::Slider::new(&mut config.thermal_pressure_weight, 0.0..=2.0)
             .text("Влияние материков"),
     );
-    ui.add(egui::Slider::new(&mut config.coriolis_strength, 0.0..=1.57).text("Сила Кориолиса (рад)"));
+    ui.add(egui::Slider::new(&mut config.coriolis_strength, 0.0..=5.00).text("Сила Кориолиса (рад)"));
     ui.add(egui::Slider::new(&mut config.mountain_wind_barrier, 0.0..=25.0).text("Барьер гор"));
     ui.add(egui::Slider::new(&mut config.wind_speed_multiplier, 1.0..=30.0).text("Скорость ветра"));
     ui.add(

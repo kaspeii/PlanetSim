@@ -75,24 +75,29 @@ pub fn apply_surface_feedback_to_climate(
         // 2. Испаряющая способность поверхности (surface_wetness):
         // Складывается из влажности почвы, транспирации растительности (биотический насос) и зеркала рек
         let vegetation_transpiration = match biome {
-            Biome::TropicalRainforest | Biome::TemperateRainforest => 0.45 * sm.sqrt(),
-            Biome::Wetland => 0.55,
+            Biome::TropicalRainforest | Biome::TemperateRainforest => 0.48 * sm.sqrt(),
+            Biome::Wetland => 0.58,
             Biome::RiparianOasis
             | Biome::TropicalSeasonalForest
             | Biome::TemperateDeciduousForest
-            | Biome::BorealTaiga => 0.32 * sm.sqrt(),
-            Biome::Savanna | Biome::TemperateGrassland | Biome::MediterraneanShrubland => 0.16 * sm,
-            Biome::Tundra => 0.12 * sm,
-            _ => 0.02 * sm,
+            | Biome::BorealTaiga => 0.36 * sm.sqrt(),
+            Biome::Savanna | Biome::TemperateGrassland | Biome::MediterraneanShrubland => {
+                0.24 * sm.sqrt()
+            }
+            Biome::Tundra => 0.18 * sm.sqrt(),
+            _ => 0.08 * sm.sqrt(),
         };
 
-        let river_evap = if flow_ratio >= 0.4 {
-            (0.14 * flow_ratio.powf(0.42)).clamp(0.0, 0.55)
+        let river_evap = if flow_ratio >= 0.3 {
+            (0.18 * flow_ratio.powf(0.40)).clamp(0.0, 0.55)
         } else {
             0.0
         };
 
+        let raw_wetness = (sm * 0.55 + vegetation_transpiration + river_evap).clamp(0.08, 1.0);
+        // Плавно смешиваем с базовым рециклингом конфига (70% биомы/реки + 30% базовый фон),
+        // чтобы 2-й проход усиливал зеленые коридоры рек, но не выжигал переходные зоны в пустыню
         climate.surface_wetness[i] =
-            (sm * 0.45 + vegetation_transpiration + river_evap).clamp(0.02, 1.0);
+            raw_wetness * 0.72 + c_config.land_moisture_recycling * 0.28;
     }
 }
