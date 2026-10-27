@@ -45,7 +45,12 @@ pub struct ClimateLayer {
     pub precipitation: Vec<f32>,
     pub albedo: Vec<f32>,
     pub continentality: Vec<f32>,
-
+    
+    /// Бесснежное альбедо поверхности суши (от биомов, почв и рек)
+    pub surface_albedo: Vec<f32>,
+    /// Доступная для испарения и транспирации влага поверхности [0.0 = сухая скала/пустыня .. 1.0 = река/болото/джунгли]
+    pub surface_wetness: Vec<f32>,
+    
     /// Атмосферное давление (в условных единицах отклонения от нормы: < 0 — циклон/низкое, > 0 — антициклон/высокое)
     pub pressure: Vec<f32>,
     /// Локальный 2D-вектор ветра: X — с запада на восток, Y — с юга на север
@@ -71,7 +76,10 @@ impl ClimateLayer {
         self.precipitation.resize(num_cells, 0.0);
         self.albedo.resize(num_cells, 0.0);
         self.continentality.resize(num_cells, 0.0);
-
+        
+        self.surface_albedo.resize(num_cells, 0.30);
+        self.surface_wetness.resize(num_cells, 0.35);
+        
         self.pressure.resize(num_cells, 0.0);
         self.winds.resize(num_cells, Vec2::ZERO);
         self.winds_3d.resize(num_cells, Vec3::ZERO);
@@ -81,6 +89,15 @@ impl ClimateLayer {
         self.summer.resize(num_cells);
         self.winter.resize(num_cells);
     }
+    
+    /// Сбрасывает свойства поверхности к нейтральным константам перед 1-м проходом климата
+    pub fn reset_surface_defaults(&mut self, num_cells: usize, land_albedo: f32, base_wetness: f32) {
+        self.surface_albedo.clear();
+        self.surface_albedo.resize(num_cells, land_albedo);
+        self.surface_wetness.clear();
+        self.surface_wetness.resize(num_cells, base_wetness);
+    }
+
 
     /// Копирует предрассчитанный сезон в активные буферы рендера без пересчета физики
     pub fn apply_active_season(&mut self, season: ClimateSeason) {

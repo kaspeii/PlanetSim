@@ -229,6 +229,8 @@ pub fn simulate_all_seasons(
     // Деструктуризация для disjoint-заимствований (continentality — immut, snapshots — mut).
     let ClimateLayer {
         continentality,
+        surface_albedo,
+        surface_wetness,
         spring,
         summer,
         winter,
@@ -236,16 +238,18 @@ pub fn simulate_all_seasons(
     } = climate;
 
     let cont: &[f32] = continentality;
+    let surf_alb: &[f32] = surface_albedo;
+    let surf_wet: &[f32] = surface_wetness;
 
     rayon::scope(|s| {
         s.spawn(|_| {
-            simulate_single_season(0.0, topology, geology, cont, config, &precalc, spring);
+            simulate_single_season(0.0, topology, geology, cont, surf_alb, surf_wet, config, &precalc, spring);
         });
         s.spawn(|_| {
-            simulate_single_season(1.0, topology, geology, cont, config, &precalc, summer);
+            simulate_single_season(1.0, topology, geology, cont, surf_alb, surf_wet, config, &precalc, summer);
         });
         s.spawn(|_| {
-            simulate_single_season(-1.0, topology, geology, cont, config, &precalc, winter);
+            simulate_single_season(-1.0, topology, geology, cont, surf_alb, surf_wet, config, &precalc, winter);
         });
     });
 
@@ -268,6 +272,8 @@ fn simulate_single_season(
     topology: &WorldTopology,
     geology: &GeologyLayer,
     continentality: &[f32],
+    surface_albedo: &[f32],
+    surface_wetness: &[f32],
     config: &ClimateConfig,
     precalc: &SolverPrecalc,
     snap: &mut SeasonalSnapshot,
@@ -288,7 +294,7 @@ fn simulate_single_season(
             config.pole_temp + (config.equator_temp - config.pole_temp) * base_insolation;
         let temp_with_height = temp_est - precalc.mountain_cooling[i];
 
-        snap.albedo[i] = calc_albedo(temp_with_height, elev, config);
+        snap.albedo[i] = calc_albedo(temp_with_height, elev, surface_albedo[i], config);
         let rad_sea_temp = calc_radiative_sea_temp(
             i,
             snap.albedo[i],
@@ -531,7 +537,7 @@ fn simulate_single_season(
 
             let final_temp = scratch.sea_level_temps[i] - precalc.mountain_cooling[i];
             snap.temperatures[i] = final_temp;
-            snap.albedo[i] = calc_albedo(final_temp, elev, config);
+            snap.albedo[i] = calc_albedo(final_temp, elev, surface_albedo[i], config);
         }
     }
 
@@ -583,6 +589,8 @@ fn simulate_single_season(
         geology,
         config,
         precalc,
+        surface_albedo,
+        surface_wetness,
         &w_air,
         &total_air,
         &wind_speed,
@@ -595,6 +603,7 @@ fn simulate_single_season(
         geology,
         config,
         precalc,
+        surface_wetness,
         &w_air,
         &total_air,
         &wind_speed,

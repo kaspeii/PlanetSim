@@ -69,6 +69,15 @@ pub fn draw_hydrology_tab_system(
         )
         .changed();
 
+    ui.add(
+        egui::Slider::new(&mut config.river_groundwater_seepage, 0.0..=2.5)
+            .text("Подпитка почвы от рек"),
+    );
+    ui.checkbox(
+        &mut config.coupled_climate_feedback,
+        "Обратная связь с климатом (Альбедо и Испарение)",
+    );
+    
     ui.add_space(10.0);
     ui.separator();
     ui.label("3. Биомы и Экология:");

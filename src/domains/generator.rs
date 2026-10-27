@@ -14,7 +14,7 @@ use rand::RngExt;
 
 use crate::{
     domains::{
-        climate::{ClimateConfig, climate_data::ClimateLayer, simulate_all_seasons}, hydrology::{HydrologyConfig, HydrologyLayer, simulate_hydrology}, tectonics::{
+        climate::{ClimateConfig, climate_data::ClimateLayer, simulate_all_seasons}, hydrology::{HydrologyConfig, HydrologyLayer, simulate_hydrology, apply_surface_feedback_to_climate}, tectonics::{
             GeologyLayer, TectonicsConfig,
             generate_hotspots, generate_plates, simulate_tectonics,
         }
@@ -49,6 +49,7 @@ impl GenerationTask {
             2 => "Симуляция движения коры и литологии...",
             3 => "Расчет сезонов, ветров, течений и осадков...",
             4 => "Формирование почв (CLORPT) и водного баланса...",
+            5 => "Обратная связь (биомы и реки <=> Климат)",
             _ => "Подготовка потоков...",
         };
         let progress = (code as f32 / self.total_steps.max(1) as f32).clamp(0.0, 1.0);
@@ -102,6 +103,13 @@ pub fn spawn_generation_task(
         PipelineStage::Hydrology => 1,
     };
 
+    let coupled = h_config.coupled_climate_feedback;
+    let total_steps = match stage {
+        PipelineStage::Tectonics => if coupled { 5 } else { 4 },
+        PipelineStage::Climate => if coupled { 3 } else { 2 },
+        PipelineStage::Hydrology => if coupled { 2 } else { 1 },
+    };
+
     let task = thread_pool.spawn(async move {
         // Шаг 1–2: Тектоника (если нужна)
         let (geology_ref, new_geology) = if let Some(geo) = existing_geology {
@@ -124,24 +132,58 @@ pub fn spawn_generation_task(
             (geo_clone, Some(geology))
         };
 
-        // Шаг 3: Климат (если нужен)
-        let (climate_ref, new_climate) = if let Some(clim) = existing_climate {
-            (clim, None)
+        let mut hydrology = HydrologyLayer::default();
+
+        // Шаг 3–4: Климат и Гидрология
+        let (climate_ref, new_climate) = if let Some(mut clim) = existing_climate {
+            // Заказан пересчет со стадии Hydrology
+            step_clone.store(4, Ordering::Relaxed);
+            simulate_hydrology(&topology, &geology_ref, &clim, &mut hydrology, &h_config);
+
+            if coupled {
+                step_clone.store(5, Ordering::Relaxed);
+                apply_surface_feedback_to_climate(&geology_ref, &mut clim, &hydrology, &c_config, &h_config);
+                simulate_all_seasons(&topology, &geology_ref, &mut clim, &c_config);
+                simulate_hydrology(&topology, &geology_ref, &clim, &mut hydrology, &h_config);
+                let c_clone = clim.clone();
+                (c_clone, Some(clim))
+            } else {
+                (clim, None)
+            }
         } else {
+            // Проход 1: Первичный климат и первичная гидрология/биомы
             step_clone.store(3, Ordering::Relaxed);
             let mut climate = ClimateLayer::default();
             climate.resize(topology.cells.len());
+            climate.reset_surface_defaults(
+                topology.cells.len(),
+                c_config.land_albedo,
+                c_config.land_moisture_recycling,
+            );
             simulate_all_seasons(&topology, &geology_ref, &mut climate, &c_config);
+
+            step_clone.store(4, Ordering::Relaxed);
+            simulate_hydrology(&topology, &geology_ref, &climate, &mut hydrology, &h_config);
+
+            // Проход 2: Обратная связь (Биомы + Реки + Почвы -> Альбедо + Испарение -> Климат -> Гидрология)
+            if coupled {
+                step_clone.store(5, Ordering::Relaxed);
+                apply_surface_feedback_to_climate(
+                    &geology_ref,
+                    &mut climate,
+                    &hydrology,
+                    &c_config,
+                    &h_config,
+                );
+                simulate_all_seasons(&topology, &geology_ref, &mut climate, &c_config);
+                simulate_hydrology(&topology, &geology_ref, &climate, &mut hydrology, &h_config);
+            }
 
             let clim_clone = climate.clone();
             (clim_clone, Some(climate))
         };
 
-        // Шаг 4: Почвы и Гидрология
-        step_clone.store(4, Ordering::Relaxed);
-        let mut hydrology = HydrologyLayer::default();
-        simulate_hydrology(&topology, &geology_ref, &climate_ref, &mut hydrology, &h_config);
-
+        let _ = climate_ref;
         (new_geology, new_climate, hydrology)
     });
     commands.spawn(GenerationTask {

@@ -3,6 +3,37 @@
 use bevy::color::{Color, ColorToComponents};
 use super::hydrology_data::{Biome, HydrologyLayer, SoilType};
 
+pub fn build_soil_moisture_colors(
+    geology: & crate::domains::tectonics::tectonics_data::GeologyLayer,
+    hydrology: &HydrologyLayer,
+) -> Vec<[f32; 4]> {
+    hydrology
+        .soil_moisture
+        .iter()
+        .enumerate()
+        .map(|(i, &sm)| {
+            if geology.elevations[i] <= 0.0 {
+                return Color::srgb(0.06, 0.12, 0.24).to_linear().to_f32_array();
+            }
+            let m = sm.clamp(0.0, 1.0);
+            let (r, g, b) = if m < 0.25 {
+                // Сухая почва: от раскаленно-бежевого к сухому желтому
+                let t = m / 0.25;
+                (0.88 - t * 0.10, 0.68 + t * 0.10, 0.38 - t * 0.05)
+            } else if m < 0.55 {
+                // Умеренно влажная почва: от желто-зеленого к насыщенному изумрудному
+                let t = (m - 0.25) / 0.30;
+                (0.78 - t * 0.55, 0.78 - t * 0.08, 0.33 + t * 0.12)
+            } else {
+                // Сильно увлажненная и пойменная почва: от бирюзового к глубокому синему
+                let t = (m - 0.55) / 0.45;
+                (0.23 - t * 0.15, 0.70 - t * 0.35, 0.45 + t * 0.48)
+            };
+            Color::srgb(r, g, b).to_linear().to_f32_array()
+        })
+        .collect()
+}
+
 pub fn build_soil_colors(hydrology: &HydrologyLayer) -> Vec<[f32; 4]> {
     hydrology
         .soils

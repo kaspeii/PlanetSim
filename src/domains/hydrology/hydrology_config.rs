@@ -24,6 +24,11 @@ pub struct HydrologyConfig {
     pub lithology_erosion_bias: f32,
     /// Масштаб ширины 3D-лент рек на глобусе
     pub river_width_scale: f32,
+    
+    /// Сила увлажнения почвы реками (в самой клетке русла и фильтрация в соседние клетки долины)
+    pub river_groundwater_seepage: f32,
+    /// Включить двухпроходную обратную связь (Биомы и Реки меняют Альбедо, Влажность воздуха и Осадки)
+    pub coupled_climate_feedback: bool,
 
     // --- ПАРАМЕТРЫ БИОМОВ ---
     /// Сила влияния текстуры и влагоемкости почвы (песок/глина) на сдвиг биомов Уиттекера
@@ -48,6 +53,9 @@ impl Default for HydrologyConfig {
             lithology_erosion_bias: 0.015,
             river_width_scale: 3.0,
 
+            river_groundwater_seepage: 1.0,
+            coupled_climate_feedback: true,
+            
             soil_biome_influence: 0.55,
             riparian_river_multiplier: 2.2,
             wetland_max_slope: 0.009,

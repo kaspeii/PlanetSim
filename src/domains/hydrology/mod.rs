@@ -8,7 +8,7 @@ mod solver;
 
 pub use hydrology_config::HydrologyConfig;
 pub use hydrology_data::HydrologyLayer;
-pub use solver::simulate_hydrology;
+pub use solver::{apply_surface_feedback_to_climate, simulate_hydrology};
 
 use bevy::prelude::*;
 

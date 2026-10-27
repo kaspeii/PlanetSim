@@ -12,7 +12,7 @@ use crate::{
                 build_albedo_colors, build_continentality_colors, build_humidity_colors, build_precipitation_colors,
                 build_pressure_colors, build_temperature_colors, build_wind_colors,
             },
-        }, hydrology::{hydrology_data::{HydrologyLayer, Biome}, HydrologyConfig, hydrology_palettes::{build_soil_colors, build_biome_colors, biome_satellite_rgb}}, tectonics::{
+        }, hydrology::{hydrology_data::{HydrologyLayer, Biome}, HydrologyConfig, hydrology_palettes::{build_soil_colors, build_biome_colors, biome_satellite_rgb, build_soil_moisture_colors}}, tectonics::{
             tectonics_data::GeologyLayer, tectonics_palettes::{build_elevation_colors, build_lithology_colors, build_plate_colors},
         }
     }, world::{
@@ -20,7 +20,7 @@ use crate::{
     },
 };
 use bevy::prelude::*;
-use camera_3d::{rotate_globe, zoom_camera, GlobeInertia};
+use camera_3d::{rotate_globe, zoom_camera, keyboard_zoom, reset_zoom, set_default_camera_zoom, GlobeInertia};
 use hotkeys::hotkey_controls;
 use mesh_globe::{build_globe_mesh, recolor_globe_mesh, reposition_globe_mesh, build_river_mesh};
 
@@ -51,6 +51,7 @@ pub enum MapOverlay {
     Pressure,
     Winds,
     Soils,
+    SoilMoisture,
     Biomes,
 }
 
@@ -83,10 +84,11 @@ impl Plugin for ViewportPlugin {
         app.init_resource::<ViewMode>()
             .init_resource::<MapOverlay>()
             .init_resource::<ViewportViewConfig>()
+            .add_systems(PostStartup, set_default_camera_zoom)
             .add_systems(Startup, setup_scene)
             .add_systems(
                 Update,
-                (rotate_globe, zoom_camera, hotkey_controls).in_set(PipelineSet::Input),
+                (rotate_globe, zoom_camera, hotkey_controls, keyboard_zoom, reset_zoom).in_set(PipelineSet::Input),
             )
             .add_systems(Update, sync_viewport_mesh.in_set(PipelineSet::Render));
     }
@@ -291,6 +293,7 @@ fn compute_overlay_colors(
         MapOverlay::Pressure => build_pressure_colors(climate),
         MapOverlay::Winds => build_wind_colors(climate),
         MapOverlay::Soils => build_soil_colors(hydrology),
+        MapOverlay::SoilMoisture => build_soil_moisture_colors(geology, hydrology),
         MapOverlay::Biomes => build_biome_colors(hydrology),
     }
 }

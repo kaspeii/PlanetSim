@@ -14,6 +14,7 @@ pub(super) fn compute_season_precipitation(
     geology: &GeologyLayer,
     config: &ClimateConfig,
     precalc: &SolverPrecalc,
+    surface_wetness: &[f32],
     w_air: &[f32],
     upwind_weight_sum: &[f32],
     wind_speed: &[f32],
@@ -130,10 +131,14 @@ pub(super) fn compute_season_precipitation(
             let conv_lift = convergence * 1.25 * inversion_suppression;
 
             let dynamic_lift = cyclone_lift + conv_lift;
-            let surface_factor = if elevs[i] <= 0.0 { 0.75 } else { 1.0 };
+            let surface_factor = if elevs[i] <= 0.0 {
+                0.75
+            } else {
+                // Транспирация лесов и испарение с речных пойм стимулируют локальную конвекцию
+                0.85 + 0.40 * surface_wetness[i] * recycling
+            };
 
             let syn_clouds = avail_water * rh_factor * dynamic_lift * 1.15 * surface_factor;
-
             *src_out = (oro_clouds + syn_clouds) * precip_mult;
         });
 
@@ -212,10 +217,9 @@ pub(super) fn compute_season_precipitation(
         let norm_precip = (1.0 - (-raw_p * 2.20).exp()).clamp(0.0, 1.0);
         snap.precipitation[i] = norm_precip;
 
-        // Правка B: убираем сильное перетекание карты осадков в карту влажности (0.03 вместо 0.28)
         if elevs[i] > 0.0 {
-            let rain_humidity_boost = norm_precip * 0.03 * recycling;
-            snap.humidity[i] = (snap.humidity[i] + rain_humidity_boost).clamp(0.0, 1.0);
+            let local_boost = (norm_precip * 0.03 + surface_wetness[i] * 0.05) * recycling;
+            snap.humidity[i] = (snap.humidity[i] + local_boost).clamp(0.0, 1.0);
         }
     }
 }

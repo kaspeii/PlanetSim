@@ -95,42 +95,45 @@ pub(super) fn compute_biomes(
             continue;
         }
 
-        // 5. Почвенная поправка к доступной влаге (эффект песка/глины на диаграмму Уиттекера)
-        // Базовая WHC суглинка ~ 0.32. Песок (низкая WHC) сушит биом, суглинок/андисоль — увлажняет.
-        let soil_moisture_mod = 1.0 + (whc - 0.30) * config.soil_biome_influence
-            - (sand - 0.45).max(0.0) * 0.45 * config.soil_biome_influence;
+        // 5. ГЛАВНЫЙ ИСТОЧНИК ВЛАГИ ДЛЯ БИОМОВ — ВЛАЖНОСТЬ ПОЧВЫ (soil_moisture)
+        let sm = hydrology.soil_moisture[i];
 
-        let effective_precip = (annual_precip * soil_moisture_mod.clamp(0.55, 1.45)).max(0.0);
+        // Переводим влажность почвы [0..1] в эквивалентный индекс увлажнения Уиттекера (MI = P_eff / PET):
+        // sm = 0.15 -> MI ~ 0.18 (граница пустыни)
+        // sm = 0.35 -> MI ~ 0.50 (степь / саванна)
+        // sm = 0.55 -> MI ~ 0.95 (густой лес)
+        // sm = 0.75 -> MI ~ 1.65 (дождевой лес / болото)
+        let moisture_idx = (sm / (1.0 - sm * 0.68).max(0.15)).clamp(0.0, 2.5);
 
-        // Потенциальное испарение (PET) и индекс доступного увлажнения (MI = P_eff / PET)
-        let pet = ((mean_temp + 10.0).max(2.0) * 0.021 * config.aridity_evap_scale).max(0.04);
-        let mut moisture_idx = effective_precip / pet;
+        // Оцениваем, сколько влаги пришло исключительно от дождей (без рек)
+        let pet = ((mean_temp + 10.0).max(2.0) * 0.020 * config.aridity_evap_scale).max(0.03);
+        let rain_only_sm = annual_precip / (annual_precip + pet * 0.85);
+        let river_moisture_surplus = (sm - rain_only_sm).max(0.0);
 
-        // 6. Азональные гидрологические биомы: Болота (Wetland) и Речные Оазисы (Riparian)
         let is_major_river = flow >= config.river_threshold * config.riparian_river_multiplier;
 
-        // Болота: плоские глинистые или глеевые низины с застоем воды или разливом крупных рек
+        // 6. Азональные биомы от переувлажнения почвы и рек:
+        // А) Болота и плавни (Wetland): почва перенасыщена водой на плоской глинистой равнине или в дельте
         if max_slope < config.wetland_max_slope
             && elev < 0.12
-            && (soil == SoilType::Gleysol || clay > 0.38)
-            && (moisture_idx > 0.78 || (is_major_river && moisture_idx > 0.42))
+            && (soil == SoilType::Gleysol || clay > 0.36)
+            && (sm > 0.74 || (is_major_river && sm > 0.58))
         {
             hydrology.biomes[i] = Biome::Wetland;
             continue;
         }
 
-        // Пойменный оазис / галерейный лес вдоль крупной реки в пустыне или полупустыне
-        if is_major_river && moisture_idx < 0.35 && mean_temp > 5.0 {
+        // Б) Пойменный оазис / галерейный лес (RiparianOasis):
+        // Климат вокруг сухой (пустыня/полупустыня), но река напитала почву водой!
+        if mean_temp > 5.0
+            && rain_only_sm < 0.28
+            && (river_moisture_surplus > 0.16 || (is_major_river && sm > 0.36))
+        {
             hydrology.biomes[i] = Biome::RiparianOasis;
             continue;
         }
 
-        // В степях и саваннах крупная река подпитывает долину грунтовыми водами
-        if is_major_river {
-            moisture_idx += 0.25;
-        }
-
-        // 7. Классификация Уиттекера с учетом сезонности
+        // 7. Классификация Уиттекера по влажности почвы и сезонности
         hydrology.biomes[i] = classify_whittaker_biome(
             mean_temp,
             warm_temp,

@@ -49,13 +49,27 @@ pub(super) fn calc_radiative_sea_temp(
 }
 
 #[inline]
-pub(super) fn calc_albedo(temp: f32, elevation: f32, config: &ClimateConfig) -> f32 {
+pub(super) fn calc_albedo(
+    temp: f32,
+    elevation: f32,
+    base_land_albedo: f32,
+    config: &ClimateConfig,
+) -> f32 {
     let base_albedo = if elevation <= 0.0 {
         config.ocean_albedo
     } else {
-        config.land_albedo
+        base_land_albedo
     };
     let t = (temp - (config.freezing_temp - 4.0)) / 6.0;
     let ice_blend = smoothstep(t);
-    config.ice_albedo * (1.0 - ice_blend) + base_albedo * ice_blend
+
+    // В густых лесах (низкое бесснежное альбедо < 0.17) темные кроны деревьев
+    // частично перекрывают снег, поэтому альбедо не доходит до чистых 0.80 ледника
+    let effective_ice_albedo = if elevation > 0.0 && base_land_albedo < 0.17 {
+        config.ice_albedo * 0.78
+    } else {
+        config.ice_albedo
+    };
+
+    effective_ice_albedo * (1.0 - ice_blend) + base_albedo * ice_blend
 }
