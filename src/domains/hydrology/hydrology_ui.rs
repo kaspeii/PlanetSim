@@ -69,6 +69,28 @@ pub fn draw_hydrology_tab_system(
         )
         .changed();
 
+    ui.add_space(10.0);
+    ui.separator();
+    ui.label("3. Биомы и Экология:");
+
+    ui.add(
+        egui::Slider::new(&mut config.soil_biome_influence, 0.0..=1.2)
+            .text("Влияние почв на биомы"),
+    );
+    ui.add(
+        egui::Slider::new(&mut config.riparian_river_multiplier, 1.0..=5.0)
+            .text("Порог речных оазисов"),
+    );
+    ui.add(
+        egui::Slider::new(&mut config.wetland_max_slope, 0.002..=0.025)
+            .text("Уклон заболачивания"),
+    );
+
+    ui.add_space(12.0);
+    if ui.button("Пересчитать почвы, реки и биомы").clicked() {
+        gen_req.request(PipelineStage::Hydrology);
+    }
+
     if mesh_changed {
         pipeline.rebuild_rivers = true;
     }

@@ -12,7 +12,7 @@ use crate::{
                 build_albedo_colors, build_continentality_colors, build_humidity_colors, build_precipitation_colors,
                 build_pressure_colors, build_temperature_colors, build_wind_colors,
             },
-        }, hydrology::{hydrology_data::HydrologyLayer, HydrologyConfig, hydrology_palettes::build_soil_colors}, tectonics::{
+        }, hydrology::{hydrology_data::{HydrologyLayer, Biome}, HydrologyConfig, hydrology_palettes::{build_soil_colors, build_biome_colors, biome_satellite_rgb}}, tectonics::{
             tectonics_data::GeologyLayer, tectonics_palettes::{build_elevation_colors, build_lithology_colors, build_plate_colors},
         }
     }, world::{
@@ -51,6 +51,7 @@ pub enum MapOverlay {
     Pressure,
     Winds,
     Soils,
+    Biomes,
 }
 
 #[derive(Component)]
@@ -139,30 +140,38 @@ fn setup_scene(
     commands.spawn((Camera3d::default(), Transform::from_xyz(0.0, 0.0, 9.5)));
 }
 
-pub fn build_space_colors(geology: &GeologyLayer, climate: &ClimateLayer) -> Vec<[f32; 4]> {
+pub fn build_space_colors(
+    geology: &GeologyLayer,
+    climate: &ClimateLayer,
+    hydrology: &HydrologyLayer,
+) -> Vec<[f32; 4]> {
     geology
         .elevations
         .iter()
         .enumerate()
         .map(|(i, &h)| {
             let albedo = climate.albedo[i];
+            let biome = hydrology.biomes.get(i).copied().unwrap_or(Biome::DeepOcean);
 
             let (base_r, base_g, base_b, base_albedo) = if h <= 0.0 {
-                let depth = (h / -0.35).clamp(0.0, 1.0);
-                let r = 0.02 + (1.0 - depth) * 0.04;
-                let g = 0.10 + (1.0 - depth) * 0.18;
-                let b = 0.28 + (1.0 - depth) * 0.25;
-                (r, g, b, 0.06)
-            } else if h < 0.03 {
-                (0.76, 0.70, 0.50, 0.30)
-            } else if h < 0.20 {
-                let t = ((h - 0.03) / 0.17).clamp(0.0, 1.0);
-                (0.20 + t * 0.12, 0.46 - t * 0.08, 0.15 + t * 0.05, 0.30)
+                if biome == Biome::SeaIce {
+                    (0.88, 0.94, 0.99, 0.75)
+                } else {
+                    let depth = (h / -0.35).clamp(0.0, 1.0);
+                    let r = 0.02 + (1.0 - depth) * 0.04;
+                    let g = 0.10 + (1.0 - depth) * 0.18;
+                    let b = 0.28 + (1.0 - depth) * 0.25;
+                    (r, g, b, 0.06)
+                }
             } else {
-                (0.42, 0.37, 0.33, 0.30)
+                let (r, g, b, b_alb) = biome_satellite_rgb(biome);
+                // Легкое высотное тонирование рельефа
+                let elev_shade = (1.0 - (h - 0.10).max(0.0) * 0.35).clamp(0.75, 1.0);
+                (r * elev_shade, g * elev_shade, b * elev_shade, b_alb)
             };
 
-            let snow_cover = ((albedo - base_albedo) / (0.80 - base_albedo)).clamp(0.0, 1.0);
+            // Сезонный снежный покров и морской лед из текущего сезона климата
+            let snow_cover = ((albedo - base_albedo) / (0.80 - base_albedo).max(0.1)).clamp(0.0, 1.0);
 
             let r = base_r * (1.0 - snow_cover) + 0.92 * snow_cover;
             let g = base_g * (1.0 - snow_cover) + 0.96 * snow_cover;
@@ -270,7 +279,7 @@ fn compute_overlay_colors(
     hydrology: &HydrologyLayer,
 ) -> Vec<[f32; 4]> {
     match *overlay {
-        MapOverlay::SpaceView => build_space_colors(geology, climate),
+        MapOverlay::SpaceView => build_space_colors(geology, climate, hydrology),
         MapOverlay::Elevation => build_elevation_colors(geology),
         MapOverlay::TectonicPlates => build_plate_colors(geology),
         MapOverlay::Lithology => build_lithology_colors(geology),
@@ -282,5 +291,6 @@ fn compute_overlay_colors(
         MapOverlay::Pressure => build_pressure_colors(climate),
         MapOverlay::Winds => build_wind_colors(climate),
         MapOverlay::Soils => build_soil_colors(hydrology),
+        MapOverlay::Biomes => build_biome_colors(hydrology),
     }
 }

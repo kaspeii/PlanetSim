@@ -24,6 +24,14 @@ pub struct HydrologyConfig {
     pub lithology_erosion_bias: f32,
     /// Масштаб ширины 3D-лент рек на глобусе
     pub river_width_scale: f32,
+
+    // --- ПАРАМЕТРЫ БИОМОВ ---
+    /// Сила влияния текстуры и влагоемкости почвы (песок/глина) на сдвиг биомов Уиттекера
+    pub soil_biome_influence: f32,
+    /// Во сколько раз поток реки должен превышать `river_threshold`, чтобы создать оазис/пойменный лес
+    pub riparian_river_multiplier: f32,
+    /// Максимальный уклон для образования болот (Wetland) на глинистых почвах
+    pub wetland_max_slope: f32,
 }
 
 impl Default for HydrologyConfig {
@@ -39,6 +47,10 @@ impl Default for HydrologyConfig {
             river_threshold: 0.00035,
             lithology_erosion_bias: 0.015,
             river_width_scale: 3.0,
+
+            soil_biome_influence: 0.55,
+            riparian_river_multiplier: 2.2,
+            wetland_max_slope: 0.009,
         }
     }
 }

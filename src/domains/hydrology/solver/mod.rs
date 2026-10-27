@@ -1,5 +1,6 @@
 // src/domains/hydrology/solver/mod.rs
 
+mod biomes;
 mod rivers;
 mod soils;
 
@@ -8,6 +9,7 @@ use crate::{
     world::topology::WorldTopology,
 };
 use super::{hydrology_config::HydrologyConfig, hydrology_data::HydrologyLayer};
+use biomes::compute_biomes;
 use rivers::compute_rivers;
 use soils::compute_soils;
 
@@ -25,4 +27,7 @@ pub fn simulate_hydrology(
 
     // Этап 2: Поверхностный сток, заполнение впадин и речная сеть
     compute_rivers(topology, geology, climate, hydrology, config);
+
+    // Этап 3: Биомы (Уиттекер + Почвы + Речные поймы и оазисы)
+    compute_biomes(topology, geology, climate, hydrology, config);
 }

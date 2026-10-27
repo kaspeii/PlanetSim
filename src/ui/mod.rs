@@ -204,6 +204,7 @@ fn render_ui_shell(world: &mut World) -> Result {
                         recolor |= ui.radio_value(&mut *overlay, MapOverlay::Pressure, "Давление").changed();
                         recolor |= ui.radio_value(&mut *overlay, MapOverlay::Winds, "Ветра").changed();
                         recolor |= ui.radio_value(&mut *overlay, MapOverlay::Soils, "Почвы").changed();
+                        recolor |= ui.radio_value(&mut *overlay, MapOverlay::Biomes, "Биомы").changed();
                     });
 
                     ui.separator();

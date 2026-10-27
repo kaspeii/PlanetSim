@@ -18,6 +18,33 @@ pub enum SoilType {
     Gleysol,   // Переувлажненные глинисто-болотные и пойменные почвы низин
 }
 
+#[repr(u8)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Biome {
+    #[default]
+    DeepOcean,                // Глубокий океан
+    ShallowOcean,             // Шельфовое мелководье и рифы
+    SeaIce,                   // Многолетний морской лед
+
+    IceSheet,                 // Полярные ледниковые щиты и вечные снега гор
+    AlpineBare,               // Высокогорные скалы, осыпи и гольцы (на Leptosol)
+    Tundra,                   // Полярная и субарктическая тундра (на Gelisol)
+    BorealTaiga,              // Тайга (бореальные хвойные леса на Podzol)
+    TemperateDeciduousForest, // Умеренный широколиственный и смешанный лес
+    TemperateRainforest,      // Умеренный влажный прибрежный лес
+    MediterraneanShrubland,   // Средиземноморские жестколистные леса и кустарники
+    TemperateGrassland,       // Степь и прерия (на Chernozem)
+    ColdDesert,               // Холодная континентальная пустыня и полупустыня
+    HotDesert,                // Жаркая субтропическая пустыня (на Aridisol)
+    XericShrubland,           // Засушливая кустарниковая полупустыня (скраб)
+    Savanna,                  // Тропическая саванна и редколесье
+    TropicalSeasonalForest,   // Тропический муссонный (сезонно-влажный) лес
+    TropicalRainforest,       // Влажный экваториальный лес (джунгли)
+
+    Wetland,                  // Болота, топи и речные плавни (на Gleysol)
+    RiparianOasis,            // Пойменный галерейный лес и речные оазисы в засушливых зонах
+}
+
 #[derive(Resource, Default, Clone)]
 pub struct HydrologyLayer {
     pub soils: Vec<SoilType>,
@@ -31,12 +58,12 @@ pub struct HydrologyLayer {
     pub permeability: Vec<f32>,
 
     // --- ГИДРОЛОГИЯ И РЕКИ ---
-    /// Локальный поверхностный и грунтовый сток клетки за год
     pub runoff: Vec<f32>,
-    /// Индекс грани/соседа `k` (в `cell.neighbors[k]`), куда вытекает вода из клетки (`None` для океана)
     pub flow_dir: Vec<Option<u8>>,
-    /// Суммарный накопленный поток воды (площадь водосбора × сток, инвариантно к разрешению сетки)
     pub flow_accumulation: Vec<f32>,
+
+    // --- БИОМЫ ---
+    pub biomes: Vec<Biome>,
 }
 
 impl HydrologyLayer {
@@ -50,5 +77,7 @@ impl HydrologyLayer {
         self.runoff.resize(num_cells, 0.0);
         self.flow_dir.resize(num_cells, None);
         self.flow_accumulation.resize(num_cells, 0.0);
+
+        self.biomes.resize(num_cells, Biome::DeepOcean);
     }
 }
