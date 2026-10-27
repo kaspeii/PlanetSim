@@ -13,7 +13,10 @@ use super::{
     climate_config::ClimateConfig,
     climate_data::{ClimateLayer, SeasonalSnapshot},
 };
-use crate::{domains::tectonics::tectonics_data::GeologyLayer, world::topology::WorldTopology};
+use crate::{
+    domains::{generator::GenerationLogger, tectonics::tectonics_data::GeologyLayer},
+    world::topology::WorldTopology,
+};
 
 use circulation::{compute_ocean_currents, compute_season_pressure_and_winds};
 use continentality::compute_continentality;
@@ -216,12 +219,15 @@ impl SeasonScratch {
 }
 
 /// Главная функция: считает континентальность 1 раз, затем параллельно 3 сезона.
+/// Главная функция: считает континентальность 1 раз, затем параллельно 3 сезона.
 pub fn simulate_all_seasons(
     topology: &WorldTopology,
     geology: &GeologyLayer,
     climate: &mut ClimateLayer,
     config: &ClimateConfig,
+    logger: &GenerationLogger,
 ) {
+    logger.start_step("Климат: расчет континентальности и геометрии сетки...");
     compute_continentality(topology, geology, climate, config);
 
     let precalc = SolverPrecalc::new(topology, geology, &climate.continentality, config);
@@ -241,6 +247,7 @@ pub fn simulate_all_seasons(
     let surf_alb: &[f32] = surface_albedo;
     let surf_wet: &[f32] = surface_wetness;
 
+    logger.start_step("Климат: симуляция 3 сезонов (Весна, Лето, Зима)...");
     rayon::scope(|s| {
         s.spawn(|_| {
             simulate_single_season(0.0, topology, geology, cont, surf_alb, surf_wet, config, &precalc, spring);
@@ -253,6 +260,7 @@ pub fn simulate_all_seasons(
         });
     });
 
+    logger.start_step("Климат: индексация 3D-стрелок ветров и течений...");
     let sampled_cells = sample_cells_on_sphere(topology, 900);
 
     for snap in [spring, summer, winter] {

@@ -99,11 +99,10 @@ fn main_menu_ui(
     Ok(())
 }
 
-/// Неблокирующий виджет прогресса генерации (показывает текущий этап и полоску прогресса)
+/// Неблокирующий виджет лога генерации (показывает историю этапов, тайминги и прогресс-бар)
 fn generation_progress_overlay(
     mut contexts: Query<&mut EguiContext>,
     tasks: Query<&GenerationTask>,
-    geology: Res<GeologyLayer>,
 ) -> Result {
     let Some(task) = tasks.iter().next() else {
         return Ok(());
@@ -112,32 +111,116 @@ fn generation_progress_overlay(
         return Ok(());
     };
 
-    let (step_text, progress) = task.status();
+    let snap = task.logger.snapshot();
+    let progress = snap.progress();
 
-    // Если планеты еще нет (первый запуск из меню) — окно по центру,
-    // если перегенерируем на лету — аккуратная плашка сверху по центру, не мешающая обзору!
-    let (align, offset) = if geology.elevations.is_empty() {
+    // Если это первая генерация из меню — окно по центру,
+    // если перегенерируем на лету — аккуратная панель сверху по центру
+    let (align, offset) = if task.is_initial {
         (egui::Align2::CENTER_CENTER, [0.0, 0.0])
     } else {
         (egui::Align2::CENTER_TOP, [0.0, 15.0])
     };
+
+    let content_width = 440.0;
 
     egui::Window::new("generation_status")
         .title_bar(false)
         .resizable(false)
         .collapsible(false)
         .anchor(align, offset)
+        .fixed_size([content_width, 0.0])
         .show(egui_ctx.get_mut(), |ui| {
-            ui.vertical_centered(|ui| {
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
+            ui.set_width(content_width);
+            ui.add_space(4.0);
+
+            // === Заголовок окна ===
+            ui.horizontal(|ui| {
+                ui.set_width(content_width);
+                if snap.is_finished {
+                    ui.label(
+                        egui::RichText::new("✔")
+                            .color(egui::Color32::from_rgb(80, 210, 120))
+                            .strong(),
+                    );
+                    ui.strong("Генерация мира завершена!");
+                } else {
                     ui.spinner();
-                    ui.strong(step_text);
+                    ui.strong("Генерация мира...");
+                }
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Шаг {}/{}  •  {:.2} с",
+                            snap.completed_steps.min(snap.total_steps),
+                            snap.total_steps,
+                            snap.total_elapsed_ms as f32 / 1000.0
+                        ))
+                        .weak()
+                        .monospace(),
+                    );
                 });
-                ui.add_space(6.0);
-                ui.add(egui::ProgressBar::new(progress). desired_width(280.0));
-                ui.add_space(6.0);
             });
+
+            ui.separator();
+            ui.add_space(2.0);
+
+            // === Список этапов с таймингами ===
+            for entry in &snap.entries {
+                ui.horizontal(|ui| {
+                    ui.set_width(content_width);
+                    if let Some(ms) = entry.duration_ms {
+                        // Завершенный этап
+                        ui.label(
+                            egui::RichText::new("✔")
+                                .color(egui::Color32::from_rgb(80, 210, 120)),
+                        );
+                        ui.label(
+                            egui::RichText::new(&entry.message)
+                                .color(egui::Color32::from_gray(200)),
+                        );
+                        ui.with_layout(
+                            egui::Layout::right_to_left(egui::Align::Center),
+                            |ui| {
+                                ui.label(
+                                    egui::RichText::new(format!("{} мс", ms))
+                                        .weak()
+                                        .monospace(),
+                                );
+                            },
+                        );
+                    } else {
+                        // Текущий выполняющийся этап
+                        let live_ms = entry.started_at.elapsed().as_millis();
+                        ui.spinner();
+                        ui.label(
+                            egui::RichText::new(&entry.message)
+                                .strong()
+                                .color(egui::Color32::WHITE),
+                        );
+                        ui.with_layout(
+                            egui::Layout::right_to_left(egui::Align::Center),
+                            |ui| {
+                                ui.label(
+                                    egui::RichText::new(format!("{} мс...", live_ms))
+                                        .color(egui::Color32::from_rgb(240, 200, 80))
+                                        .monospace(),
+                                );
+                            },
+                        );
+                    }
+                });
+                ui.add_space(2.0);
+            }
+
+            ui.add_space(6.0);
+            ui.add(
+                egui::ProgressBar::new(progress)
+                    .show_percentage()
+                    .desired_width(content_width),
+            );
+            ui.add_space(4.0);
         });
 
     Ok(())

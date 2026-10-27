@@ -1,8 +1,8 @@
 // src/domains/generator.rs
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicU8, Ordering},
+use std::{
+    sync::{Arc, Mutex},
+    time::Instant,
 };
 use bevy::{
     prelude::*,
@@ -14,11 +14,17 @@ use rand::RngExt;
 
 use crate::{
     domains::{
-        climate::{ClimateConfig, climate_data::ClimateLayer, simulate_all_seasons}, hydrology::{HydrologyConfig, HydrologyLayer, simulate_hydrology, apply_surface_feedback_to_climate}, tectonics::{
+        climate::{ClimateConfig, climate_data::ClimateLayer, simulate_all_seasons},
+        hydrology::{
+            HydrologyConfig, HydrologyLayer,
+            apply_surface_feedback_to_climate, simulate_hydrology,
+        },
+        tectonics::{
             GeologyLayer, TectonicsConfig,
             generate_hotspots, generate_plates, simulate_tectonics,
-        }
-    }, world::{
+        },
+    },
+    world::{
         pipeline::{PipelineStage, WorldPipeline},
         topology::WorldTopology,
     },
@@ -34,27 +40,138 @@ impl GenerationRequest {
     }
 }
 
-#[derive(Component)]
-pub struct GenerationTask {
-    pub step: Arc<AtomicU8>,
-    pub total_steps: u8,
-    pub task: Task<(Option<GeologyLayer>, Option<ClimateLayer>, HydrologyLayer)>,
+/// Запись об одном этапе генерации для отображения в UI
+#[derive(Clone)]
+pub struct LogEntry {
+    pub message: String,
+    pub started_at: Instant,
+    pub duration_ms: Option<u128>,
 }
 
-impl GenerationTask {
-    pub fn status(&self) -> (&'static str, f32) {
-        let code = self.step.load(Ordering::Relaxed);
-        let desc = match code {
-            1 => "Формирование тектонических плит и вулканов...",
-            2 => "Симуляция движения коры и литологии...",
-            3 => "Расчет сезонов, ветров, течений и осадков...",
-            4 => "Формирование почв (CLORPT) и водного баланса...",
-            5 => "Обратная связь (биомы и реки <=> Климат)",
-            _ => "Подготовка потоков...",
+/// Снимок состояния логгера для безопасной отрисовки в egui без удержания мьютекса
+pub struct LogSnapshot {
+    pub entries: Vec<LogEntry>,
+    pub completed_steps: usize,
+    pub total_steps: usize,
+    pub total_elapsed_ms: u128,
+    pub is_finished: bool,
+}
+
+impl LogSnapshot {
+    pub fn progress(&self) -> f32 {
+        if self.is_finished {
+            return 1.0;
+        }
+        let active_bonus = if self.entries.len() > self.completed_steps {
+            0.35
+        } else {
+            0.0
         };
-        let progress = (code as f32 / self.total_steps.max(1) as f32).clamp(0.0, 1.0);
-        (desc, progress)
+        ((self.completed_steps as f32 + active_bonus) / self.total_steps.max(1) as f32)
+            .clamp(0.0, 0.99)
     }
+}
+
+#[derive(Clone)]
+pub struct GenerationLogger {
+    inner: Arc<Mutex<InnerLog>>,
+}
+
+struct InnerLog {
+    started_at: Instant,
+    finished_at: Option<Instant>,
+    total_steps: usize,
+    entries: Vec<LogEntry>,
+}
+
+impl GenerationLogger {
+    pub fn new(total_steps: usize) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(InnerLog {
+                started_at: Instant::now(),
+                finished_at: None,
+                total_steps,
+                entries: Vec::with_capacity(total_steps),
+            })),
+        }
+    }
+
+    /// Завершает предыдущий шаг (записывая его длительность) и начинает новый
+    pub fn start_step(&self, message: impl Into<String>) {
+        let msg = message.into();
+        let now = Instant::now();
+        if let Ok(mut guard) = self.inner.lock() {
+            if let Some(last) = guard.entries.last_mut() {
+                if last.duration_ms.is_none() {
+                    let dur = now.duration_since(last.started_at).as_millis();
+                    last.duration_ms = Some(dur);
+                    info!("  ✔ {} ({} мс)", last.message, dur);
+                }
+            }
+            guard.entries.push(LogEntry {
+                message: msg,
+                started_at: now,
+                duration_ms: None,
+            });
+        }
+    }
+
+    /// Фиксирует завершение последнего шага и всей генерации
+    pub fn finish(&self) {
+        let now = Instant::now();
+        if let Ok(mut guard) = self.inner.lock() {
+            if guard.finished_at.is_some() {
+                return;
+            }
+            if let Some(last) = guard.entries.last_mut() {
+                if last.duration_ms.is_none() {
+                    let dur = now.duration_since(last.started_at).as_millis();
+                    last.duration_ms = Some(dur);
+                    info!("  ✔ {} ({} мс)", last.message, dur);
+                }
+            }
+            guard.finished_at = Some(now);
+            let total_ms = now.duration_since(guard.started_at).as_millis();
+            info!("✅ Генерация мира завершена за {} мс", total_ms);
+        }
+    }
+
+    /// Сколько миллисекунд прошло с момента завершения задачи (для плавного закрытия окна)
+    pub fn finished_elapsed_ms(&self) -> u128 {
+        if let Ok(guard) = self.inner.lock() {
+            if let Some(fin) = guard.finished_at {
+                return fin.elapsed().as_millis();
+            }
+        }
+        0
+    }
+
+    pub fn snapshot(&self) -> LogSnapshot {
+        let guard = self.inner.lock().unwrap();
+        let completed_steps = guard
+            .entries
+            .iter()
+            .filter(|e| e.duration_ms.is_some())
+            .count();
+        let total_elapsed_ms = match guard.finished_at {
+            Some(fin) => fin.duration_since(guard.started_at).as_millis(),
+            None => guard.started_at.elapsed().as_millis(),
+        };
+        LogSnapshot {
+            entries: guard.entries.clone(),
+            completed_steps,
+            total_steps: guard.total_steps,
+            total_elapsed_ms,
+            is_finished: guard.finished_at.is_some(),
+        }
+    }
+}
+
+#[derive(Component)]
+pub struct GenerationTask {
+    pub logger: GenerationLogger,
+    pub is_initial: bool,
+    pub task: Option<Task<(Option<GeologyLayer>, Option<ClimateLayer>, HydrologyLayer)>>,
 }
 
 pub fn spawn_generation_task(
@@ -75,14 +192,12 @@ pub fn spawn_generation_task(
         commands.entity(entity).despawn();
     }
 
+    let is_initial = geology_res.elevations.is_empty();
+
     let thread_pool = AsyncComputeTaskPool::get();
     let topology = (*topology).clone();
     let t_config = (*t_config).clone();
     let c_config = (*c_config).clone();
-
-    let step = Arc::new(AtomicU8::new(0));
-    let step_clone = step.clone();
-
     let h_config = (*h_config).clone();
 
     let existing_geology = if stage > PipelineStage::Tectonics {
@@ -98,18 +213,24 @@ pub fn spawn_generation_task(
     };
 
     let coupled = h_config.coupled_climate_feedback;
-    let total_steps = match stage {
-        PipelineStage::Tectonics => if coupled { 5 } else { 4 },
-        PipelineStage::Climate => if coupled { 3 } else { 2 },
-        PipelineStage::Hydrology => if coupled { 2 } else { 1 },
+    let base_steps = match stage {
+        PipelineStage::Tectonics => 6, // 2 (Тектоника) + 3 (Климат) + 1 (Гидрология)
+        PipelineStage::Climate => 4,   // 3 (Климат) + 1 (Гидрология)
+        PipelineStage::Hydrology => 1, // 1 (Гидрология)
     };
+    let total_steps = if coupled { base_steps + 5 } else { base_steps };
+
+    let logger = GenerationLogger::new(total_steps);
+    let logger_clone = logger.clone();
+
+    info!("🚀 Старт генерации (стадия: {:?}, обратная связь: {})...", stage, coupled);
 
     let task = thread_pool.spawn(async move {
         // Шаг 1–2: Тектоника (если нужна)
         let (geology_ref, new_geology) = if let Some(geo) = existing_geology {
             (geo, None)
         } else {
-            step_clone.store(1, Ordering::Relaxed);
+            logger_clone.start_step("Формирование тектонических плит и вулканов...");
             let mut rng = rand::rng();
             let seed = rng.random_range(0..=u32::MAX);
             let perlin = Fbm::<Perlin>::new(seed);
@@ -119,7 +240,7 @@ pub fn spawn_generation_task(
             geology.plates = generate_plates(&mut rng, &t_config);
             geology.volcanoes = generate_hotspots(&mut rng, &geology.plates, &t_config);
 
-            step_clone.store(2, Ordering::Relaxed);
+            logger_clone.start_step("Симуляция движения коры и литологии...");
             simulate_tectonics(&topology, &mut geology, &perlin, &t_config);
 
             let geo_clone = geology.clone();
@@ -128,16 +249,24 @@ pub fn spawn_generation_task(
 
         let mut hydrology = HydrologyLayer::default();
 
-        // Шаг 3–4: Климат и Гидрология
+        // Шаг 3+: Климат и Гидрология
         let (climate_ref, new_climate) = if let Some(mut clim) = existing_climate {
             // Заказан пересчет со стадии Hydrology
-            step_clone.store(4, Ordering::Relaxed);
+            logger_clone.start_step("Формирование почв (CLORPT), рек и биомов...");
             simulate_hydrology(&topology, &geology_ref, &clim, &mut hydrology, &h_config);
 
             if coupled {
-                step_clone.store(5, Ordering::Relaxed);
-                apply_surface_feedback_to_climate(&geology_ref, &mut clim, &hydrology, &c_config, &h_config);
-                simulate_all_seasons(&topology, &geology_ref, &mut clim, &c_config);
+                logger_clone.start_step("Обратная связь: влияние биомов на альбедо и влагу...");
+                apply_surface_feedback_to_climate(
+                    &geology_ref,
+                    &mut clim,
+                    &hydrology,
+                    &c_config,
+                    &h_config,
+                );
+                simulate_all_seasons(&topology, &geology_ref, &mut clim, &c_config, &logger_clone);
+
+                logger_clone.start_step("Финальный пересчет водного баланса и биомов...");
                 simulate_hydrology(&topology, &geology_ref, &clim, &mut hydrology, &h_config);
                 let c_clone = clim.clone();
                 (c_clone, Some(clim))
@@ -146,7 +275,6 @@ pub fn spawn_generation_task(
             }
         } else {
             // Проход 1: Первичный климат и первичная гидрология/биомы
-            step_clone.store(3, Ordering::Relaxed);
             let mut climate = ClimateLayer::default();
             climate.resize(topology.cells.len());
             climate.reset_surface_defaults(
@@ -154,14 +282,14 @@ pub fn spawn_generation_task(
                 c_config.land_albedo,
                 c_config.land_moisture_recycling,
             );
-            simulate_all_seasons(&topology, &geology_ref, &mut climate, &c_config);
+            simulate_all_seasons(&topology, &geology_ref, &mut climate, &c_config, &logger_clone);
 
-            step_clone.store(4, Ordering::Relaxed);
+            logger_clone.start_step("Формирование почв (CLORPT), рек и биомов...");
             simulate_hydrology(&topology, &geology_ref, &climate, &mut hydrology, &h_config);
 
             // Проход 2: Обратная связь (Биомы + Реки + Почвы -> Альбедо + Испарение -> Климат -> Гидрология)
             if coupled {
-                step_clone.store(5, Ordering::Relaxed);
+                logger_clone.start_step("Обратная связь: влияние биомов на альбедо и влагу...");
                 apply_surface_feedback_to_climate(
                     &geology_ref,
                     &mut climate,
@@ -169,7 +297,9 @@ pub fn spawn_generation_task(
                     &c_config,
                     &h_config,
                 );
-                simulate_all_seasons(&topology, &geology_ref, &mut climate, &c_config);
+                simulate_all_seasons(&topology, &geology_ref, &mut climate, &c_config, &logger_clone);
+
+                logger_clone.start_step("Финальный пересчет водного баланса и биомов...");
                 simulate_hydrology(&topology, &geology_ref, &climate, &mut hydrology, &h_config);
             }
 
@@ -180,10 +310,11 @@ pub fn spawn_generation_task(
         let _ = climate_ref;
         (new_geology, new_climate, hydrology)
     });
+
     commands.spawn(GenerationTask {
-        step,
-        total_steps,
-        task,
+        logger,
+        is_initial,
+        task: Some(task),
     });
 }
 
@@ -197,20 +328,28 @@ pub fn handle_generation_task(
 ) {
     let Some((entity, mut gen_task)) = task_query.iter_mut().next() else { return; };
 
-    if let Some((opt_geology, opt_climate, gen_hydrology)) =
-        future::block_on(future::poll_once(&mut gen_task.task))
-    {
-        if let Some(gen_geology) = opt_geology {
-            *geology_res = gen_geology;
-            pipeline.rebuild_mesh = true;
-        } else {
-            pipeline.recolor_mesh = true;
+    if let Some(ref mut task) = gen_task.task {
+        if let Some((opt_geology, opt_climate, gen_hydrology)) =
+            future::block_on(future::poll_once(task))
+        {
+            if let Some(gen_geology) = opt_geology {
+                *geology_res = gen_geology;
+                pipeline.rebuild_mesh = true;
+            } else {
+                pipeline.recolor_mesh = true;
+            }
+            if let Some(gen_climate) = opt_climate {
+                *climate_res = gen_climate;
+            }
+            *hydrology_res = gen_hydrology;
+            pipeline.rebuild_rivers = true;
+
+            // Фиксируем окончание в логгере и освобождаем Task
+            gen_task.logger.finish();
+            gen_task.task = None;
         }
-        if let Some(gen_climate) = opt_climate {
-            *climate_res = gen_climate;
-        }
-        *hydrology_res = gen_hydrology;
-        pipeline.rebuild_rivers = true;
+    } else if gen_task.logger.finished_elapsed_ms() >= 600 {
+        // Держим окно лога 0.6 сек после 100% готовности, чтобы пользователь увидел результат
         commands.entity(entity).despawn();
     }
 }
