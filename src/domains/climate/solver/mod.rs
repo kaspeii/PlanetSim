@@ -95,12 +95,11 @@ impl SolverPrecalc {
         let mut neighbor_offsets = Vec::with_capacity(num_cells + 1);
         neighbor_offsets.push(0usize);
 
-        for i in 0..num_cells {
+        for (i, c) in continentality.iter().enumerate().take(num_cells) {
             let cell = &topology.cells[i];
             let pos = cell.center;
             let lat = cell.lat_lon.x;
             let elev = geology.elevations[i];
-            let c = continentality[i];
 
             let (s_lat, c_lat) = lat.sin_cos();
             sin_lat.push(s_lat);
@@ -124,7 +123,7 @@ impl SolverPrecalc {
             ocean_equilibrium.push(ocean_lat_baseline * 0.88 + global_avg * 0.12);
             ocean_ref_temp.push(ocean_lat_baseline * 0.78 + global_avg * 0.22);
 
-            let mod_val = if c < 0.0 {
+            let mod_val = if *c < 0.0 {
                 config.base_ocean_moderation * (1.0 - r * (1.0 - c.abs()))
             } else {
                 config.base_ocean_moderation * (1.0 - r) * (1.0 - c)
@@ -260,13 +259,19 @@ pub fn simulate_all_seasons(
     logger.start_step("Климат: симуляция 3 сезонов (Весна, Лето, Зима)...");
     rayon::scope(|s| {
         s.spawn(|_| {
-            simulate_single_season(0.0, topology, geology, cont, surf_alb, surf_wet, config, &precalc, spring);
+            simulate_single_season(
+                0.0, topology, geology, cont, surf_alb, surf_wet, config, &precalc, spring,
+            );
         });
         s.spawn(|_| {
-            simulate_single_season(1.0, topology, geology, cont, surf_alb, surf_wet, config, &precalc, summer);
+            simulate_single_season(
+                1.0, topology, geology, cont, surf_alb, surf_wet, config, &precalc, summer,
+            );
         });
         s.spawn(|_| {
-            simulate_single_season(-1.0, topology, geology, cont, surf_alb, surf_wet, config, &precalc, winter);
+            simulate_single_season(
+                -1.0, topology, geology, cont, surf_alb, surf_wet, config, &precalc, winter,
+            );
         });
     });
 
@@ -285,6 +290,7 @@ pub fn simulate_all_seasons(
     climate.apply_active_season(config.active_season);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn simulate_single_season(
     season_mult: f32,
     topology: &WorldTopology,
@@ -303,7 +309,7 @@ fn simulate_single_season(
     let mut scratch = SeasonScratch::new(num_cells);
 
     // --- 1. Первичная оценка температуры от Солнца ---
-    for i in 0..num_cells {
+    for (i, surf_alb) in surface_albedo.iter().enumerate().take(num_cells) {
         let elev = geology.elevations[i];
         let base_insolation =
             (precalc.cos_lat[i] * cos_sun + precalc.sin_lat[i] * sin_sun).max(0.0);
@@ -312,37 +318,30 @@ fn simulate_single_season(
             config.pole_temp + (config.equator_temp - config.pole_temp) * base_insolation;
         let temp_with_height = temp_est - precalc.mountain_cooling[i];
 
-        snap.albedo[i] = calc_albedo(temp_with_height, elev, surface_albedo[i], config);
-        let rad_sea_temp = calc_radiative_sea_temp(
-            i,
-            snap.albedo[i],
-            base_insolation,
-            precalc,
-            config,
-            geology,
-        );
+        snap.albedo[i] = calc_albedo(temp_with_height, elev, *surf_alb, config);
+        let rad_sea_temp =
+            calc_radiative_sea_temp(i, snap.albedo[i], base_insolation, precalc, config, geology);
 
         scratch.sea_level_temps[i] = rad_sea_temp;
         snap.temperatures[i] = rad_sea_temp - precalc.mountain_cooling[i];
     }
 
     // --- 2. Широтные пояса давления (постоянны весь сезон) ---
-    for i in 0..num_cells {
+    for (i, c) in continentality.iter().enumerate().take(num_cells) {
         let lat = topology.cells[i].lat_lon.x;
         let lon = topology.cells[i].lat_lon.y;
-        let c = continentality[i];
         let belt_lat = lat - sun_lat * 0.55;
 
         let polar_damping = 0.5 + 0.5 * precalc.cos_lat[i];
         let base_belt = -(6.0 * belt_lat).cos() * polar_damping;
 
-        let belt_envelope = if c < 0.0 {
+        let belt_envelope = if *c < 0.0 {
             let ocean_core = smoothstep(-c);
             let sin_2lat_abs = (2.0 * precalc.sin_lat[i] * precalc.cos_lat[i]).abs();
             let rossby_wave = 1.0 + 0.35 * (3.0 * lon + belt_lat * 2.0).cos() * sin_2lat_abs;
             (0.55 + 0.85 * ocean_core) * rossby_wave
         } else {
-            1.0 - 0.15 * smoothstep(c)
+            1.0 - 0.15 * smoothstep(*c)
         };
 
         scratch.latitudinal_pressure[i] =
@@ -456,26 +455,24 @@ fn simulate_single_season(
         }
 
         // Д) Океаническая адвекция (15 итераций)
-        scratch.ocean_temps.copy_from_slice(&scratch.sea_level_temps);
+        scratch
+            .ocean_temps
+            .copy_from_slice(&scratch.sea_level_temps);
         for _ in 0..15 {
             std::mem::swap(&mut scratch.ocean_temps, &mut scratch.prev_ocean);
             let prev = &scratch.prev_ocean;
             let out = &mut scratch.ocean_temps;
 
             out.par_iter_mut().enumerate().for_each(|(i, o)| {
-                if elevs[i] > 0.0
-                    || current_speed[i] < 0.001
-                    || total_ocean[i] <= 0.0
-                {
+                if elevs[i] > 0.0 || current_speed[i] < 0.001 || total_ocean[i] <= 0.0 {
                     *o = prev[i];
                     return;
                 }
                 let start = offs[i];
                 let end = offs[i + 1];
                 let mut upwind = 0.0;
-                for j in start..end {
-                    let w = w_ocean[j];
-                    if w > 0.0 {
+                for (j, w) in w_ocean.iter().enumerate().take(end).skip(start) {
+                    if *w > 0.0 {
                         let k = j - start;
                         let n_id = nbrs[i].neighbors[k];
                         upwind += prev[n_id] * w;
@@ -489,15 +486,17 @@ fn simulate_single_season(
         }
 
         // Смешиваем тепло океана в sea_level_temps
-        for i in 0..num_cells {
-            if elevs[i] <= 0.0 {
+        for (i, e) in elevs.iter().enumerate().take(num_cells) {
+            if *e <= 0.0 {
                 scratch.sea_level_temps[i] =
                     scratch.sea_level_temps[i] * 0.25 + scratch.ocean_temps[i] * 0.75;
             }
         }
 
         // Е) Воздушная адвекция (25 итераций)
-        scratch.advected_temps.copy_from_slice(&scratch.sea_level_temps);
+        scratch
+            .advected_temps
+            .copy_from_slice(&scratch.sea_level_temps);
         for _ in 0..25 {
             std::mem::swap(&mut scratch.advected_temps, &mut scratch.prev_temps);
             let prev = &scratch.prev_temps;
@@ -512,9 +511,8 @@ fn simulate_single_season(
                 let start = offs[i];
                 let end = offs[i + 1];
                 let mut upwind = 0.0;
-                for j in start..end {
-                    let w = w_air[j];
-                    if w > 0.0 {
+                for (j, w) in w_air.iter().enumerate().take(end).skip(start) {
+                    if *w > 0.0 {
                         let k = j - start;
                         let n_id = nbrs[i].neighbors[k];
                         upwind += prev[n_id] * w;
@@ -672,10 +670,10 @@ fn build_arrows_from_samples(
 
     let mut arrows = Vec::with_capacity(samples.len());
     for &i in samples {
-        if let Some(elevs) = elevations {
-            if elevs[i] > 0.0 {
-                continue;
-            }
+        if let Some(elevs) = elevations
+            && elevs[i] > 0.0
+        {
+            continue;
         }
         let speed = vectors[i].length();
         if speed < max_speed * 0.05 {

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub enum SoilType {
     #[default]
-    Ocean,     // Морское дно
+    Ocean, // Морское дно
     Leptosol,  // Горные скелетные почвы и скальные выходы на крутых склонах
     Gelisol,   // Мерзлотные тундровые почвы (вечная мерзлота, водоупор)
     Podzol,    // Кислотные подзолистые почвы холодных лесов (на песках и гранитах)
@@ -23,9 +23,9 @@ pub enum SoilType {
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub enum Biome {
     #[default]
-    DeepOcean,                // Глубокий океан
-    ShallowOcean,             // Шельфовое мелководье и рифы
-    SeaIce,                   // Многолетний морской лед
+    DeepOcean, // Глубокий океан
+    ShallowOcean, // Шельфовое мелководье и рифы
+    SeaIce,       // Многолетний морской лед
 
     IceSheet,                 // Полярные ледниковые щиты и вечные снега гор
     AlpineBare,               // Высокогорные скалы, осыпи и гольцы (на Leptosol)
@@ -42,8 +42,8 @@ pub enum Biome {
     TropicalSeasonalForest,   // Тропический муссонный (сезонно-влажный) лес
     TropicalRainforest,       // Влажный экваториальный лес (джунгли)
 
-    Wetland,                  // Болота, топи и речные плавни (на Gleysol)
-    RiparianOasis,            // Пойменный галерейный лес и речные оазисы в засушливых зонах
+    Wetland,       // Болота, топи и речные плавни (на Gleysol)
+    RiparianOasis, // Пойменный галерейный лес и речные оазисы в засушливых зонах
 }
 
 #[derive(Resource, Default, Clone, Serialize, Deserialize)]
@@ -66,7 +66,7 @@ pub struct HydrologyLayer {
 
     /// Фактическая влажность почвы (от осадков, талых вод и фильтрации из рек) [0.0 .. 1.0]
     pub soil_moisture: Vec<f32>,
-   
+
     // --- БИОМЫ ---
     pub biomes: Vec<Biome>,
 }

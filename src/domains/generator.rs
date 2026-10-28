@@ -1,9 +1,5 @@
 // src/domains/generator.rs
 
-use std::{
-    sync::{Arc, Mutex},
-    time::Instant,
-};
 use bevy::{
     prelude::*,
     tasks::{AsyncComputeTaskPool, Task},
@@ -11,23 +7,25 @@ use bevy::{
 use futures_lite::future;
 use noise::{Fbm, Perlin};
 use rand::RngExt;
+use std::{
+    sync::{Arc, Mutex},
+    time::Instant,
+};
 
 use crate::{
     domains::{
         climate::{ClimateConfig, climate_data::ClimateLayer, simulate_all_seasons},
         hydrology::{
-            HydrologyConfig, HydrologyLayer,
-            apply_surface_feedback_to_climate, simulate_hydrology,
+            HydrologyConfig, HydrologyLayer, apply_surface_feedback_to_climate, simulate_hydrology,
         },
         tectonics::{
-            GeologyLayer, TectonicsConfig,
-            generate_hotspots, generate_plates, simulate_tectonics,
+            GeologyLayer, TectonicsConfig, generate_hotspots, generate_plates, simulate_tectonics,
         },
     },
     world::{
         pipeline::{PipelineStage, WorldPipeline},
-        topology::WorldTopology,
         states::AppState,
+        topology::WorldTopology,
     },
 };
 
@@ -102,12 +100,12 @@ impl GenerationLogger {
         let msg = message.into();
         let now = Instant::now();
         if let Ok(mut guard) = self.inner.lock() {
-            if let Some(last) = guard.entries.last_mut() {
-                if last.duration_ms.is_none() {
-                    let dur = now.duration_since(last.started_at).as_millis();
-                    last.duration_ms = Some(dur);
-                    info!("  ✔ {} ({} мс)", last.message, dur);
-                }
+            if let Some(last) = guard.entries.last_mut()
+                && last.duration_ms.is_none()
+            {
+                let dur = now.duration_since(last.started_at).as_millis();
+                last.duration_ms = Some(dur);
+                info!("  ✔ {} ({} мс)", last.message, dur);
             }
             guard.entries.push(LogEntry {
                 message: msg,
@@ -124,12 +122,12 @@ impl GenerationLogger {
             if guard.finished_at.is_some() {
                 return;
             }
-            if let Some(last) = guard.entries.last_mut() {
-                if last.duration_ms.is_none() {
-                    let dur = now.duration_since(last.started_at).as_millis();
-                    last.duration_ms = Some(dur);
-                    info!("  ✔ {} ({} мс)", last.message, dur);
-                }
+            if let Some(last) = guard.entries.last_mut()
+                && last.duration_ms.is_none()
+            {
+                let dur = now.duration_since(last.started_at).as_millis();
+                last.duration_ms = Some(dur);
+                info!("  ✔ {} ({} мс)", last.message, dur);
             }
             guard.finished_at = Some(now);
             let total_ms = now.duration_since(guard.started_at).as_millis();
@@ -139,10 +137,10 @@ impl GenerationLogger {
 
     /// Сколько миллисекунд прошло с момента завершения задачи (для плавного закрытия окна)
     pub fn finished_elapsed_ms(&self) -> u128 {
-        if let Ok(guard) = self.inner.lock() {
-            if let Some(fin) = guard.finished_at {
-                return fin.elapsed().as_millis();
-            }
+        if let Ok(guard) = self.inner.lock()
+            && let Some(fin) = guard.finished_at
+        {
+            return fin.elapsed().as_millis();
         }
         0
     }
@@ -175,6 +173,7 @@ pub struct GenerationTask {
     pub task: Option<Task<(Option<GeologyLayer>, Option<ClimateLayer>, HydrologyLayer)>>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_generation_task(
     mut commands: Commands,
     mut req: ResMut<GenerationRequest>,
@@ -187,7 +186,9 @@ pub fn spawn_generation_task(
     climate_res: Res<ClimateLayer>,
     h_config: Res<HydrologyConfig>,
 ) {
-    let Some(stage) = req.0.take() else { return; };
+    let Some(stage) = req.0.take() else {
+        return;
+    };
     next_state.set(AppState::InGame);
 
     // Если старая задача еще крутилась, отменяем её
@@ -226,7 +227,10 @@ pub fn spawn_generation_task(
     let logger = GenerationLogger::new(total_steps);
     let logger_clone = logger.clone();
 
-    info!("🚀 Старт генерации (стадия: {:?}, обратная связь: {})...", stage, coupled);
+    info!(
+        "🚀 Старт генерации (стадия: {:?}, обратная связь: {})...",
+        stage, coupled
+    );
 
     let task = thread_pool.spawn(async move {
         // Шаг 1–2: Тектоника (если нужна)
@@ -285,7 +289,13 @@ pub fn spawn_generation_task(
                 c_config.land_albedo,
                 c_config.land_moisture_recycling,
             );
-            simulate_all_seasons(&topology, &geology_ref, &mut climate, &c_config, &logger_clone);
+            simulate_all_seasons(
+                &topology,
+                &geology_ref,
+                &mut climate,
+                &c_config,
+                &logger_clone,
+            );
 
             logger_clone.start_step("Формирование почв (CLORPT), рек и биомов...");
             simulate_hydrology(&topology, &geology_ref, &climate, &mut hydrology, &h_config);
@@ -300,7 +310,13 @@ pub fn spawn_generation_task(
                     &c_config,
                     &h_config,
                 );
-                simulate_all_seasons(&topology, &geology_ref, &mut climate, &c_config, &logger_clone);
+                simulate_all_seasons(
+                    &topology,
+                    &geology_ref,
+                    &mut climate,
+                    &c_config,
+                    &logger_clone,
+                );
 
                 logger_clone.start_step("Финальный пересчет водного баланса и биомов...");
                 simulate_hydrology(&topology, &geology_ref, &climate, &mut hydrology, &h_config);
@@ -329,7 +345,9 @@ pub fn handle_generation_task(
     mut hydrology_res: ResMut<HydrologyLayer>,
     mut pipeline: ResMut<WorldPipeline>,
 ) {
-    let Some((entity, mut gen_task)) = task_query.iter_mut().next() else { return; };
+    let Some((entity, mut gen_task)) = task_query.iter_mut().next() else {
+        return;
+    };
 
     if let Some(ref mut task) = gen_task.task {
         if let Some((opt_geology, opt_climate, gen_hydrology)) =

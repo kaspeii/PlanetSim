@@ -6,7 +6,7 @@ use super::climate_data::ClimateLayer;
 use crate::{
     domains::tectonics::tectonics_data::GeologyLayer,
     viewport::{Globe, ViewportViewConfig},
-    world::{topology::WorldTopology, WorldConfig},
+    world::{WorldConfig, topology::WorldTopology},
 };
 
 /// Палитра относительной влажности [0.0 .. 1.0]:

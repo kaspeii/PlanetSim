@@ -79,7 +79,11 @@ pub(super) fn compute_season_precipitation(
                         let n_elev = elevs[n_id].max(0.0);
                         let dh = (my_elev - n_elev).max(0.0);
 
-                        let coastal_step = if is_land && elevs[n_id] <= 0.0 { 0.05 } else { 0.0 };
+                        let coastal_step = if is_land && elevs[n_id] <= 0.0 {
+                            0.05
+                        } else {
+                            0.0
+                        };
                         let slope =
                             ((dh * vertical_scale) / hex_rad).clamp(0.0, 2.5) + coastal_step;
                         upslope_lift += slope * w;

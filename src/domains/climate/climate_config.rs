@@ -63,7 +63,7 @@ pub struct ClimateConfig {
     /// Сила переноса тепла именно толщей воды (высокая термоинерция)
     pub ocean_advection_rate: f32,
 
-    /// 
+    /// Нужно написать что это
     pub geostrophic_multiplier: f32,
 
     // --- ПАРАМЕТРЫ ВЛАЖНОСТИ ---

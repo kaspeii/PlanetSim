@@ -4,17 +4,17 @@ mod biomes;
 mod rivers;
 mod soils;
 
+use super::{
+    hydrology_config::HydrologyConfig,
+    hydrology_data::{Biome, HydrologyLayer},
+    hydrology_palettes::biome_satellite_rgb,
+};
 use crate::{
     domains::{
         climate::{ClimateConfig, climate_data::ClimateLayer},
         tectonics::tectonics_data::GeologyLayer,
     },
     world::topology::WorldTopology,
-};
-use super::{
-    hydrology_config::HydrologyConfig,
-    hydrology_data::{Biome, HydrologyLayer},
-    hydrology_palettes::biome_satellite_rgb,
 };
 use biomes::compute_biomes;
 use rivers::compute_rivers;
@@ -48,8 +48,12 @@ pub fn apply_surface_feedback_to_climate(
     h_config: &HydrologyConfig,
 ) {
     let num_cells = geology.elevations.len();
-    climate.surface_albedo.resize(num_cells, c_config.land_albedo);
-    climate.surface_wetness.resize(num_cells, c_config.land_moisture_recycling);
+    climate
+        .surface_albedo
+        .resize(num_cells, c_config.land_albedo);
+    climate
+        .surface_wetness
+        .resize(num_cells, c_config.land_moisture_recycling);
 
     let threshold = h_config.river_threshold.max(1e-6);
 
@@ -97,7 +101,6 @@ pub fn apply_surface_feedback_to_climate(
         let raw_wetness = (sm * 0.55 + vegetation_transpiration + river_evap).clamp(0.08, 1.0);
         // Плавно смешиваем с базовым рециклингом конфига (70% биомы/реки + 30% базовый фон),
         // чтобы 2-й проход усиливал зеленые коридоры рек, но не выжигал переходные зоны в пустыню
-        climate.surface_wetness[i] =
-            raw_wetness * 0.72 + c_config.land_moisture_recycling * 0.28;
+        climate.surface_wetness[i] = raw_wetness * 0.72 + c_config.land_moisture_recycling * 0.28;
     }
 }

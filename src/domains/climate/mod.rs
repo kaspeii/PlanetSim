@@ -10,8 +10,8 @@ pub use climate_config::ClimateConfig;
 pub use climate_data::ClimateLayer;
 pub use solver::simulate_all_seasons;
 
-use bevy::prelude::*;
 use crate::world::{pipeline::PipelineSet, states::AppState};
+use bevy::prelude::*;
 use climate_palettes::{draw_ocean_currents_gizmos, draw_wind_arrows_gizmos};
 
 pub struct ClimatePlugin;

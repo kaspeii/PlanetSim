@@ -449,7 +449,7 @@ fn apply_lithology_overlays(
 ) {
     let num_cells = topology.cells.len();
 
-    for i in 0..num_cells {
+    for (i, r) in ridge_cells.iter().enumerate().take(num_cells) {
         let elev = geology.elevations[i];
         let plate_type = geology.plates[geology.plate_ids[i]].plate_type;
         let lat_abs = topology.cells[i].lat_lon.x.abs();
@@ -459,7 +459,7 @@ fn apply_lithology_overlays(
             geology.lithology[i] = if plate_type == PlateType::Oceanic {
                 RockType::FloodBasalt // Океанические щитовые вулканы (Гавайский тип)
             } else if elev > config.cont_base_height + 0.14 {
-                RockType::Andesite    // Высокие континентальные стратовулканы / кальдеры
+                RockType::Andesite // Высокие континентальные стратовулканы / кальдеры
             } else {
                 RockType::FloodBasalt // Континентальные базальтовые плато (траппы)
             };
@@ -479,16 +479,12 @@ fn apply_lithology_overlays(
         // 2. Морское дно (Ниже уровня океана)
         if elev <= 0.0 {
             // Тёплые мелководные шельфы (тропики и субтропики до ~35° широты) -> Известняки (рифовые/карбонатные банки)
-            if elev > -0.09
-                && lat_abs < 0.62
-                && !ridge_cells[i]
-                && geology.lithology[i] != RockType::Andesite
-            {
+            if elev > -0.09 && lat_abs < 0.62 && !r && geology.lithology[i] != RockType::Andesite {
                 geology.lithology[i] = RockType::Limestone;
             }
             // Глубокие старые абиссальные равнины вдали от СОХ -> Пелагические осадки
             else if elev < config.ocean_base_height - 0.05
-                && !ridge_cells[i]
+                && !r
                 && geology.lithology[i] == RockType::OceanicBasalt
             {
                 geology.lithology[i] = RockType::PelagicSediment;
@@ -512,7 +508,10 @@ fn apply_lithology_overlays(
         if elev < config.cont_base_height * 0.75
             && max_slope < 0.018
             && lat_abs < 0.58
-            && matches!(geology.lithology[i], RockType::Sandstone | RockType::ShaleClay)
+            && matches!(
+                geology.lithology[i],
+                RockType::Sandstone | RockType::ShaleClay
+            )
         {
             // Чередуем известняковые плато и терригенные осадки по широте/долготе без лишнего шума
             let dir = topology.cells[i].center;
@@ -528,7 +527,10 @@ fn apply_lithology_overlays(
             if max_slope < 0.006 && elev < config.cont_base_height * 0.55 {
                 // Плоские низменности — глинистые отложения
                 geology.lithology[i] = RockType::ShaleClay;
-            } else if matches!(geology.lithology[i], RockType::Granite | RockType::GneissSchist) {
+            } else if matches!(
+                geology.lithology[i],
+                RockType::Granite | RockType::GneissSchist
+            ) {
                 // Пологие равнины поверх древнего фундамента перекрываются песчаным осадочным чехлом
                 geology.lithology[i] = RockType::Sandstone;
             }

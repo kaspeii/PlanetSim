@@ -1,13 +1,11 @@
 // src/viewport/hotkeys.rs
 
-use bevy::prelude::*;
 use crate::{
-    viewport::MapOverlay,
-    world::{
-        pipeline::{PipelineStage, WorldPipeline},
-    },
     domains::generator::GenerationRequest,
+    viewport::MapOverlay,
+    world::pipeline::{PipelineStage, WorldPipeline},
 };
+use bevy::prelude::*;
 
 pub fn hotkey_controls(
     keys: Res<ButtonInput<KeyCode>>,

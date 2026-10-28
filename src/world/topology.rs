@@ -35,7 +35,10 @@ impl WorldTopology {
             Self::calculate_topology(&vertices, &faces);
         let cells = Self::build_cells(&vertices, &incident_faces, &raw_neighbors, &face_centers);
 
-        Self { subdivisions, cells }
+        Self {
+            subdivisions,
+            cells,
+        }
     }
 
     // pub fn len(&self) -> usize {

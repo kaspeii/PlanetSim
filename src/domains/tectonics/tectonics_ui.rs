@@ -1,9 +1,8 @@
 // /src/domains/tectonics/tectonics_ui.rs
 
+use crate::{domains::generator::GenerationRequest, world::pipeline::PipelineStage};
 use bevy::prelude::*;
 use bevy_egui::egui;
-use crate::{world::pipeline::PipelineStage, domains::generator::GenerationRequest};
-
 
 // Импортируем приватный конфиг только внутри своего модуля tectonics!
 use super::tectonics_config::TectonicsConfig;
@@ -13,7 +12,7 @@ pub fn draw_tectonics_tab_system(
     mut config: ResMut<TectonicsConfig>,
     mut gen_req: ResMut<GenerationRequest>,
 ) {
- ui.heading("Настройки Тектоники");
+    ui.heading("Настройки Тектоники");
     ui.separator();
 
     // Кнопка регенерации (выделенная цветом)

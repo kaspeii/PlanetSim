@@ -1,18 +1,16 @@
 // src/world/mod.rs
 
 pub mod pipeline;
-pub mod topology;
 pub mod states;
+pub mod topology;
 
 use bevy::prelude::*;
 use pipeline::{PipelineSet, PipelineStage, WorldPipeline};
-use topology::WorldTopology;
 use states::AppState;
+use topology::WorldTopology;
 
 use crate::domains::{
-    climate::climate_data::ClimateLayer,
-    generator::GenerationRequest,
-    hydrology::HydrologyLayer,
+    climate::climate_data::ClimateLayer, generator::GenerationRequest, hydrology::HydrologyLayer,
     tectonics::GeologyLayer,
 };
 
@@ -28,7 +26,7 @@ pub struct WorldConfig {
 impl Default for WorldConfig {
     fn default() -> Self {
         Self {
-            radius: 5.0, // release - 7
+            radius: 5.0,                 // release - 7
             next_planet_subdivisions: 7, // release - 8
         }
     }
@@ -67,19 +65,26 @@ fn setup_topology(mut commands: Commands, config: Res<WorldConfig>) {
 pub fn start_new_planet(world: &mut World, subdivisions: u32) {
     let current = world.resource::<WorldTopology>().subdivisions;
     if current != subdivisions {
-        info!("Пересборка топологии: {} -> {} subdiv", current, subdivisions);
+        info!(
+            "Пересборка топологии: {} -> {} subdiv",
+            current, subdivisions
+        );
         *world.resource_mut::<WorldTopology>() = WorldTopology::new(subdivisions);
     }
 
-    *world.resource_mut::<GeologyLayer>()   = GeologyLayer::default();
-    *world.resource_mut::<ClimateLayer>()   = ClimateLayer::default();
+    *world.resource_mut::<GeologyLayer>() = GeologyLayer::default();
+    *world.resource_mut::<ClimateLayer>() = ClimateLayer::default();
     *world.resource_mut::<HydrologyLayer>() = HydrologyLayer::default();
 
     let mut pipeline = world.resource_mut::<WorldPipeline>();
-    pipeline.rebuild_mesh   = true;
-    pipeline.recolor_mesh   = true;
+    pipeline.rebuild_mesh = true;
+    pipeline.recolor_mesh = true;
     pipeline.rebuild_rivers = true;
 
-    world.resource_mut::<GenerationRequest>().request(PipelineStage::Tectonics);
-    world.resource_mut::<NextState<AppState>>().set(AppState::InGame);
+    world
+        .resource_mut::<GenerationRequest>()
+        .request(PipelineStage::Tectonics);
+    world
+        .resource_mut::<NextState<AppState>>()
+        .set(AppState::InGame);
 }

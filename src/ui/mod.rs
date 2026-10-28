@@ -13,8 +13,9 @@ use crate::{
     },
     viewport::{Globe, MapOverlay, ViewportViewConfig},
     world::{
-        WorldConfig, start_new_planet,
+        WorldConfig,
         pipeline::{PipelineStage, WorldPipeline},
+        start_new_planet,
         states::AppState,
         topology::WorldTopology,
     },
@@ -73,6 +74,7 @@ fn manage_scene_visibility(
 
 /// В главном меню поверх центрального вьюпорта висит компактное стартовое окно,
 /// а правая/верхняя панели уже полностью доступны для настройки конфигов и загрузки сейвов
+#[allow(clippy::too_many_arguments)]
 fn main_menu_ui(
     mut contexts: Query<&mut EguiContext>,
     mut next_state: ResMut<NextState<AppState>>,
@@ -112,13 +114,13 @@ fn main_menu_ui(
                     if topology.subdivisions != target_subdivs {
                         *topology = WorldTopology::new(target_subdivs);
                     }
-                    *geology   = GeologyLayer::default();
-                    *climate   = ClimateLayer::default();
+                    *geology = GeologyLayer::default();
+                    *climate = ClimateLayer::default();
                     *hydrology = HydrologyLayer::default();
 
                     let p = &mut *pipeline;
-                    p.rebuild_mesh   = true;
-                    p.recolor_mesh   = true;
+                    p.rebuild_mesh = true;
+                    p.recolor_mesh = true;
                     p.rebuild_rivers = true;
 
                     gen_req.request(PipelineStage::Tectonics);
@@ -219,23 +221,15 @@ fn generation_progress_overlay(
                     ui.set_width(content_width);
                     if let Some(ms) = entry.duration_ms {
                         ui.label(
-                            egui::RichText::new("✔")
-                                .color(egui::Color32::from_rgb(80, 210, 120)),
+                            egui::RichText::new("✔").color(egui::Color32::from_rgb(80, 210, 120)),
                         );
                         ui.label(
                             egui::RichText::new(&entry.message)
                                 .color(egui::Color32::from_gray(200)),
                         );
-                        ui.with_layout(
-                            egui::Layout::right_to_left(egui::Align::Center),
-                            |ui| {
-                                ui.label(
-                                    egui::RichText::new(format!("{} мс", ms))
-                                        .weak()
-                                        .monospace(),
-                                );
-                            },
-                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(egui::RichText::new(format!("{} мс", ms)).weak().monospace());
+                        });
                     } else {
                         let live_ms = entry.started_at.elapsed().as_millis();
                         ui.spinner();
@@ -244,16 +238,13 @@ fn generation_progress_overlay(
                                 .strong()
                                 .color(egui::Color32::WHITE),
                         );
-                        ui.with_layout(
-                            egui::Layout::right_to_left(egui::Align::Center),
-                            |ui| {
-                                ui.label(
-                                    egui::RichText::new(format!("{} мс...", live_ms))
-                                        .color(egui::Color32::from_rgb(240, 200, 80))
-                                        .monospace(),
-                                );
-                            },
-                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(
+                                egui::RichText::new(format!("{} мс...", live_ms))
+                                    .color(egui::Color32::from_rgb(240, 200, 80))
+                                    .monospace(),
+                            );
+                        });
                     }
                 });
                 ui.add_space(2.0);
@@ -308,10 +299,7 @@ fn render_ui_shell(world: &mut World) -> Result {
                                 open_planets = save_ui.show_planets_window;
                             }
                             if ui
-                                .selectable_label(
-                                    save_ui.show_configs_window,
-                                    "⚙ Пресеты конфигов",
-                                )
+                                .selectable_label(save_ui.show_configs_window, "⚙ Пресеты конфигов")
                                 .clicked()
                             {
                                 save_ui.show_configs_window = !save_ui.show_configs_window;
@@ -342,7 +330,11 @@ fn render_ui_shell(world: &mut World) -> Result {
                             ui.weak(format!(
                                 " Детализация: subdiv {} | Статус: {}",
                                 subdivs,
-                                if has_geo { "Планета активна" } else { "Ожидание генерации" }
+                                if has_geo {
+                                    "Планета активна"
+                                } else {
+                                    "Ожидание генерации"
+                                }
                             ));
                         });
                     });
@@ -379,27 +371,66 @@ fn render_ui_shell(world: &mut World) -> Result {
                     ui.label("Слои карты:");
 
                     world.resource_scope(|_world, mut overlay: Mut<MapOverlay>| {
-                        recolor |= ui.radio_value(&mut *overlay, MapOverlay::SpaceView, "Базовый").changed();
-                        recolor |= ui.radio_value(&mut *overlay, MapOverlay::Elevation, "Рельеф").changed();
-                        recolor |= ui.radio_value(&mut *overlay, MapOverlay::TectonicPlates, "Тектонические плиты").changed();
-                        recolor |= ui.radio_value(&mut *overlay, MapOverlay::Lithology, "Породы").changed();
-                        recolor |= ui.radio_value(&mut *overlay, MapOverlay::Temperature, "Температура").changed();
-                        recolor |= ui.radio_value(&mut *overlay, MapOverlay::Humidity, "Влажность").changed();
-                        recolor |= ui.radio_value(&mut *overlay, MapOverlay::Precipitation, "Осадки").changed();
-                        recolor |= ui.radio_value(&mut *overlay, MapOverlay::Albedo, "Альбедо").changed();
-                        recolor |= ui.radio_value(&mut *overlay, MapOverlay::Continentality, "Континентальность").changed();
-                        recolor |= ui.radio_value(&mut *overlay, MapOverlay::Pressure, "Давление").changed();
-                        recolor |= ui.radio_value(&mut *overlay, MapOverlay::Winds, "Ветра").changed();
-                        recolor |= ui.radio_value(&mut *overlay, MapOverlay::Soils, "Почвы").changed();
-                        recolor |= ui.radio_value(&mut *overlay, MapOverlay::SoilMoisture, "Влажность почвы").changed();
-                        recolor |= ui.radio_value(&mut *overlay, MapOverlay::Biomes, "Биомы").changed();
+                        recolor |= ui
+                            .radio_value(&mut *overlay, MapOverlay::SpaceView, "Базовый")
+                            .changed();
+                        recolor |= ui
+                            .radio_value(&mut *overlay, MapOverlay::Elevation, "Рельеф")
+                            .changed();
+                        recolor |= ui
+                            .radio_value(
+                                &mut *overlay,
+                                MapOverlay::TectonicPlates,
+                                "Тектонические плиты",
+                            )
+                            .changed();
+                        recolor |= ui
+                            .radio_value(&mut *overlay, MapOverlay::Lithology, "Породы")
+                            .changed();
+                        recolor |= ui
+                            .radio_value(&mut *overlay, MapOverlay::Temperature, "Температура")
+                            .changed();
+                        recolor |= ui
+                            .radio_value(&mut *overlay, MapOverlay::Humidity, "Влажность")
+                            .changed();
+                        recolor |= ui
+                            .radio_value(&mut *overlay, MapOverlay::Precipitation, "Осадки")
+                            .changed();
+                        recolor |= ui
+                            .radio_value(&mut *overlay, MapOverlay::Albedo, "Альбедо")
+                            .changed();
+                        recolor |= ui
+                            .radio_value(
+                                &mut *overlay,
+                                MapOverlay::Continentality,
+                                "Континентальность",
+                            )
+                            .changed();
+                        recolor |= ui
+                            .radio_value(&mut *overlay, MapOverlay::Pressure, "Давление")
+                            .changed();
+                        recolor |= ui
+                            .radio_value(&mut *overlay, MapOverlay::Winds, "Ветра")
+                            .changed();
+                        recolor |= ui
+                            .radio_value(&mut *overlay, MapOverlay::Soils, "Почвы")
+                            .changed();
+                        recolor |= ui
+                            .radio_value(&mut *overlay, MapOverlay::SoilMoisture, "Влажность почвы")
+                            .changed();
+                        recolor |= ui
+                            .radio_value(&mut *overlay, MapOverlay::Biomes, "Биомы")
+                            .changed();
                     });
 
                     ui.separator();
                     ui.label("Модификаторы:");
 
                     world.resource_scope(|_world, mut view_cfg: Mut<ViewportViewConfig>| {
-                        if ui.checkbox(&mut view_cfg.flat_water, "Плоский океан").changed() {
+                        if ui
+                            .checkbox(&mut view_cfg.flat_water, "Плоский океан")
+                            .changed()
+                        {
                             reposition = true;
                         }
                         ui.checkbox(&mut view_cfg.show_axis_equator, "Ось и Экватор");
@@ -442,12 +473,19 @@ fn render_ui_shell(world: &mut World) -> Result {
                             // --- Секция 1: текущая планета ---
                             let (cur_subdivs, cell_count, has_data) = {
                                 let topo = world.resource::<WorldTopology>();
-                                let geo  = world.resource::<GeologyLayer>();
-                                (topo.subdivisions, topo.cells.len(), !geo.elevations.is_empty())
+                                let geo = world.resource::<GeologyLayer>();
+                                (
+                                    topo.subdivisions,
+                                    topo.cells.len(),
+                                    !geo.elevations.is_empty(),
+                                )
                             };
 
                             ui.heading("Текущая планета");
-                            ui.label(format!("Размерность сетки: subdiv {} ({} ячеек)", cur_subdivs, cell_count));
+                            ui.label(format!(
+                                "Размерность сетки: subdiv {} ({} ячеек)",
+                                cur_subdivs, cell_count
+                            ));
                             ui.separator();
 
                             // --- Секция 2: радиус (live, без перегенерации) ---
@@ -463,8 +501,8 @@ fn render_ui_shell(world: &mut World) -> Result {
                             });
                             if radius_changed && has_data {
                                 let mut p = world.resource_mut::<WorldPipeline>();
-                                p.reposition_mesh   = true;
-                                p.rebuild_rivers    = true;
+                                p.reposition_mesh = true;
+                                p.rebuild_rivers = true;
                             }
 
                             ui.separator();
@@ -487,7 +525,9 @@ fn render_ui_shell(world: &mut World) -> Result {
                                 if ui
                                     .add_sized(
                                         [ui.available_width(), 36.0],
-                                        egui::Button::new("🚀 Создать новую планету с этими настройками"),
+                                        egui::Button::new(
+                                            "🚀 Создать новую планету с этими настройками",
+                                        ),
                                     )
                                     .clicked()
                                 {

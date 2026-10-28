@@ -2,8 +2,8 @@
 
 use std::collections::VecDeque;
 
-use super::smoothstep;
 use super::super::{climate_config::ClimateConfig, climate_data::ClimateLayer};
+use super::smoothstep;
 use crate::{domains::tectonics::tectonics_data::GeologyLayer, world::topology::WorldTopology};
 
 pub(super) fn compute_continentality(

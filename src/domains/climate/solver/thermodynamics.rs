@@ -1,7 +1,7 @@
 // src/domains/climate/solver/thermodynamics.rs
 
-use super::{smoothstep, SolverPrecalc};
 use super::super::climate_config::ClimateConfig;
+use super::{SolverPrecalc, smoothstep};
 use crate::domains::tectonics::tectonics_data::GeologyLayer;
 
 /// Высотное охлаждение с мягким порогом.
@@ -43,8 +43,8 @@ pub(super) fn calc_radiative_sea_temp(
 
     // Континентальный экстремум: суша сильнее раскаляется под высоким солнцем и сильнее стынет у полюсов
     if geology.elevations[i] > 0.0 {
-        let cont_factor = 1.0
-            - (precalc.moderation[i] / config.base_ocean_moderation.max(0.01)).clamp(0.0, 1.0);
+        let cont_factor =
+            1.0 - (precalc.moderation[i] / config.base_ocean_moderation.max(0.01)).clamp(0.0, 1.0);
         raw_temp += cont_factor * (base_insolation - 0.42) * 10.5;
     }
 

@@ -65,8 +65,7 @@ pub(super) fn compute_season_moisture(
         let cloud_layer_t = if elevs[i] <= 0.0 {
             snap.temperatures[i]
         } else {
-            (sea_level_t * 0.45 + precalc.ocean_equilibrium[i] * 0.55)
-                - precalc.mountain_cooling[i]
+            (sea_level_t * 0.45 + precalc.ocean_equilibrium[i] * 0.55) - precalc.mountain_cooling[i]
                 + p * 2.5
         };
 
@@ -138,16 +137,15 @@ pub(super) fn compute_season_moisture(
             if is_ocean {
                 let open_water = open_water_fraction(snap.albedo[i], config.ocean_albedo);
                 let base_rh = 0.80 + 0.15 * open_water;
-                let subsidence_mod =
-                    1.0 - 0.20 * (my_p.max(0.0) * config.subsidence_drying_strength).clamp(0.0, 1.0);
-                let target_rh = (base_rh
-                    * subsidence_mod
-                    * config.ocean_evaporation_rate.clamp(0.5, 1.15))
-                .clamp(0.35, 0.96);
+                let subsidence_mod = 1.0
+                    - 0.20 * (my_p.max(0.0) * config.subsidence_drying_strength).clamp(0.0, 1.0);
+                let target_rh =
+                    (base_rh * subsidence_mod * config.ocean_evaporation_rate.clamp(0.5, 1.15))
+                        .clamp(0.35, 0.96);
                 let target_q = my_cap * target_rh;
 
-                let evap_step =
-                    (5.5 * open_water * config.ocean_evaporation_rate * inv_steps).clamp(0.04, 0.45);
+                let evap_step = (5.5 * open_water * config.ocean_evaporation_rate * inv_steps)
+                    .clamp(0.04, 0.45);
                 q += (target_q - q) * evap_step;
             } else {
                 let wetness = surface_wetness[i].max(0.20);

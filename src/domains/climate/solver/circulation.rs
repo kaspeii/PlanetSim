@@ -3,8 +3,8 @@
 use bevy::prelude::*;
 use rayon::prelude::*;
 
-use super::{smoothstep, SeasonScratch, SolverPrecalc};
 use super::super::{climate_config::ClimateConfig, climate_data::SeasonalSnapshot};
+use super::{SeasonScratch, SolverPrecalc, smoothstep};
 use crate::{domains::tectonics::tectonics_data::GeologyLayer, world::topology::WorldTopology};
 
 /// Поворот касательного вектора вокруг единичной нормали `axis` на угол (cos, sin).
@@ -27,13 +27,16 @@ pub(super) fn compute_season_pressure_and_winds(
     let avg_hex_rad = precalc.avg_hex_rad;
 
     // 1. Термическое поле (считается заново каждую итерацию)
-    for i in 0..num_cells {
-        let c = continentality[i];
+    for (i, c) in continentality.iter().enumerate().take(num_cells) {
         let sea_level_temp = snap.temperatures[i] + precalc.mountain_cooling[i];
         let ocean_ref_temp = precalc.ocean_ref_temp[i];
         let temp_diff = (sea_level_temp - ocean_ref_temp) / 12.0;
 
-        let weight = if c >= 0.0 { 0.4 + 0.6 * c } else { 0.4 * (1.0 + c * 0.6) };
+        let weight = if *c >= 0.0 {
+            0.4 + 0.6 * c
+        } else {
+            0.4 * (1.0 + c * 0.6)
+        };
         scratch.thermal_field[i] = (-temp_diff * weight).clamp(-1.2, 1.2);
     }
 
@@ -97,14 +100,14 @@ pub(super) fn compute_season_pressure_and_winds(
 
         let start = offs[i];
         let end = offs[i + 1];
-        for j in start..end {
+        for (j, tdir) in tdirs.iter().enumerate().take(end).skip(start) {
             let k = j - start;
             let n_id = cell.neighbors[k];
             let n_pos = topology.cells[n_id].center;
             let raw_dir = n_pos - pos;
             let safe_dist = raw_dir.length().max(avg_hex_rad * 0.3);
             let diff = (my_p - snap.pressure[n_id]) / safe_dist;
-            grad_3d += tdirs[j] * diff;
+            grad_3d += tdir * diff;
         }
 
         if !cell.neighbors.is_empty() {
@@ -124,26 +127,26 @@ pub(super) fn compute_season_pressure_and_winds(
         let mut upslope_grad = Vec3::ZERO;
         let wind_dir = wind_3d.normalize_or_zero();
 
-        for j in start..end {
+        for (j, tdir) in tdirs.iter().enumerate().take(end).skip(start) {
             let k = j - start;
             let n_id = cell.neighbors[k];
-            let to_neighbor = tdirs[j];
+            let to_neighbor = tdir;
             let n_elev = (geology.elevations[n_id] - config.mountain_base_level).max(0.0);
             let elev_diff = n_elev - my_elev;
 
             if elev_diff > 0.0 {
                 // 1. Вертикальный масштаб: конвертируем абстрактные единицы высоты в физические
-                // Если пик 0.5 — это ~8 км, то коэффициент ~0.016. 
+                // Если пик 0.5 — это ~8 км, то коэффициент ~0.016.
                 // (Подберите 0.01 - 0.03, чтобы горы выглядели физически реально в ветрах)
-                let vertical_scale = 0.02; 
-                
+                let vertical_scale = 0.02;
+
                 // 2. Физический склон: высота / горизонтальная дистанция в тех же единицах (радианах)
                 let real_height_diff = elev_diff * vertical_scale;
-                let slope = (real_height_diff / avg_hex_rad).clamp(0.0, 2.0); 
-    
+                let slope = (real_height_diff / avg_hex_rad).clamp(0.0, 2.0);
+
                 upslope_grad += to_neighbor * slope;
 
-                let alignment = wind_dir.dot(to_neighbor);
+                let alignment = wind_dir.dot(*to_neighbor);
                 if alignment > 0.0 {
                     mountain_drag += slope * alignment;
                 }
@@ -197,14 +200,19 @@ pub(super) fn compute_ocean_currents(
         }
 
         // 2. Спираль Экмана (Rodrigues)
-        wind_current = rodrigues(pos, wind_current, precalc.ekman_cos[i], precalc.ekman_sin[i]);
+        wind_current = rodrigues(
+            pos,
+            wind_current,
+            precalc.ekman_cos[i],
+            precalc.ekman_sin[i],
+        );
 
         // 3. Геострофическое течение (угол ±π/2 → cos=0, sin=±1, только cross)
         let my_p = snap.pressure[i];
         let mut grad_p = Vec3::ZERO;
         let start = offs[i];
         let end = offs[i + 1];
-        for j in start..end {
+        for (j, tdir) in tdirs.iter().enumerate().take(end).skip(start) {
             let k = j - start;
             let n_id = cell.neighbors[k];
             if geology.elevations[n_id] <= 0.0 {
@@ -212,7 +220,7 @@ pub(super) fn compute_ocean_currents(
                 let raw_dir = n_pos - pos;
                 let safe_dist = raw_dir.length().max(avg_hex_rad * 0.3);
                 let diff = (my_p - snap.pressure[n_id]) / safe_dist;
-                grad_p += tdirs[j] * diff;
+                grad_p += tdir * diff;
             }
         }
         if !cell.neighbors.is_empty() {
@@ -232,8 +240,7 @@ pub(super) fn compute_ocean_currents(
             let n_id = cell.neighbors[k];
             if geology.elevations[n_id] > 0.0 {
                 let raw_dir = pos - topology.cells[n_id].center;
-                let tangent_from_coast =
-                    (raw_dir - pos * raw_dir.dot(pos)).normalize_or_zero();
+                let tangent_from_coast = (raw_dir - pos * raw_dir.dot(pos)).normalize_or_zero();
                 coast_normal += tangent_from_coast;
             }
         }

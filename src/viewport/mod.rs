@@ -9,20 +9,38 @@ use crate::{
         climate::{
             climate_data::ClimateLayer,
             climate_palettes::{
-                build_albedo_colors, build_continentality_colors, build_humidity_colors, build_precipitation_colors,
-                build_pressure_colors, build_temperature_colors, build_wind_colors,
+                build_albedo_colors, build_continentality_colors, build_humidity_colors,
+                build_precipitation_colors, build_pressure_colors, build_temperature_colors,
+                build_wind_colors,
             },
-        }, hydrology::{hydrology_data::{HydrologyLayer, Biome}, HydrologyConfig, hydrology_palettes::{build_soil_colors, build_biome_colors, biome_satellite_rgb, build_soil_moisture_colors}}, tectonics::{
-            tectonics_data::GeologyLayer, tectonics_palettes::{build_elevation_colors, build_lithology_colors, build_plate_colors},
-        }
-    }, world::{
-        WorldConfig, pipeline::{PipelineSet, WorldPipeline}, topology::WorldTopology,
+        },
+        hydrology::{
+            HydrologyConfig,
+            hydrology_data::{Biome, HydrologyLayer},
+            hydrology_palettes::{
+                biome_satellite_rgb, build_biome_colors, build_soil_colors,
+                build_soil_moisture_colors,
+            },
+        },
+        tectonics::{
+            tectonics_data::GeologyLayer,
+            tectonics_palettes::{
+                build_elevation_colors, build_lithology_colors, build_plate_colors,
+            },
+        },
+    },
+    world::{
+        WorldConfig,
+        pipeline::{PipelineSet, WorldPipeline},
+        topology::WorldTopology,
     },
 };
 use bevy::prelude::*;
-use camera_3d::{rotate_globe, zoom_camera, keyboard_zoom, reset_zoom, set_default_camera_zoom, GlobeInertia};
+use camera_3d::{
+    GlobeInertia, keyboard_zoom, reset_zoom, rotate_globe, set_default_camera_zoom, zoom_camera,
+};
 use hotkeys::hotkey_controls;
-use mesh_globe::{build_globe_mesh, recolor_globe_mesh, reposition_globe_mesh, build_river_mesh};
+use mesh_globe::{build_globe_mesh, build_river_mesh, recolor_globe_mesh, reposition_globe_mesh};
 
 #[derive(Component)]
 pub struct Globe;
@@ -90,17 +108,24 @@ impl Plugin for ViewportPlugin {
             .add_systems(Startup, setup_scene)
             .add_systems(
                 Update,
-                (rotate_globe, zoom_camera, hotkey_controls, keyboard_zoom, reset_zoom).in_set(PipelineSet::Input),
+                (
+                    rotate_globe,
+                    zoom_camera,
+                    hotkey_controls,
+                    keyboard_zoom,
+                    reset_zoom,
+                )
+                    .in_set(PipelineSet::Input),
             )
             .add_systems(Update, sync_viewport_mesh.in_set(PipelineSet::Render))
-            .add_systems(Update, draw_axis_and_equator_gizmos.in_set(PipelineSet::Render));
+            .add_systems(
+                Update,
+                draw_axis_and_equator_gizmos.in_set(PipelineSet::Render),
+            );
     }
 }
 
-fn setup_scene(
-    mut commands: Commands,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
+fn setup_scene(mut commands: Commands, mut materials: ResMut<Assets<StandardMaterial>>) {
     let material_handle = materials.add(StandardMaterial {
         base_color: Color::WHITE,
         perceptual_roughness: 0.85,
@@ -175,7 +200,8 @@ pub fn build_space_colors(
             };
 
             // Сезонный снежный покров и морской лед из текущего сезона климата
-            let snow_cover = ((albedo - base_albedo) / (0.80 - base_albedo).max(0.1)).clamp(0.0, 1.0);
+            let snow_cover =
+                ((albedo - base_albedo) / (0.80 - base_albedo).max(0.1)).clamp(0.0, 1.0);
 
             let r = base_r * (1.0 - snow_cover) + 0.92 * snow_cover;
             let g = base_g * (1.0 - snow_cover) + 0.96 * snow_cover;
@@ -198,7 +224,10 @@ fn sync_viewport_mesh(
     overlay: Res<MapOverlay>,
     view_config: Res<ViewportViewConfig>,
     mut globe_query: Query<&mut Mesh3d, (With<Globe>, Without<RiverOverlayMesh>)>,
-    mut river_query: Query<(&mut Mesh3d, &mut Visibility), (With<RiverOverlayMesh>, Without<Globe>)>,
+    mut river_query: Query<
+        (&mut Mesh3d, &mut Visibility),
+        (With<RiverOverlayMesh>, Without<Globe>),
+    >,
     mut meshes: ResMut<Assets<Mesh>>,
     // Задерживает удаление старого меша на 1 кадр, чтобы slab_allocator не делал free + grow одновременно
     mut deferred_mesh_drops: Local<Vec<Handle<Mesh>>>,
@@ -327,21 +356,22 @@ pub fn draw_axis_and_equator_gizmos(
     // 1. Рисуем ось вращения (от Южного полюса к Северному)
     let local_top = Vec3::Y * (radius + 1.0);
     let local_bottom = Vec3::NEG_Y * (radius + 1.0);
-    
+
     let world_top = globe_transform.transform_point(local_top);
     let world_bottom = globe_transform.transform_point(local_bottom);
 
     gizmos.arrow(world_bottom, world_top, Color::srgba(1.0, 0.2, 0.2, 0.9));
 
     // 2. Рисуем Экватор
-    let equator_radius = radius + 0.05; 
-    
+    let equator_radius = radius + 0.05;
+
     // Поворачиваем плоскость круга (по умолчанию XY) на -90 градусов по X, чтобы получить экватор (XZ)
-    let equator_rotation = globe_transform.rotation * Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
-    
+    let equator_rotation =
+        globe_transform.rotation * Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
+
     gizmos.circle(
         Isometry3d::new(globe_transform.translation, equator_rotation),
-        equator_radius, 
+        equator_radius,
         Color::srgba(0.2, 0.8, 1.0, 0.9),
     );
 }

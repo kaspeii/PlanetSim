@@ -1,12 +1,12 @@
 // src/domains/save.rs
 
+use bevy::prelude::*;
+use bevy_egui::egui;
+use serde::{Deserialize, Serialize};
 use std::{
     fs,
     path::{Path, PathBuf},
 };
-use bevy::prelude::*;
-use bevy_egui::egui;
-use serde::{Deserialize, Serialize};
 
 use crate::{
     domains::{
@@ -178,6 +178,7 @@ fn stage_label(stage: PipelineStage) -> &'static str {
 }
 
 /// Система отрисовки модальных окон сохранения/загрузки планет, конфигов и диалога догенерации
+#[allow(clippy::too_many_arguments)]
 pub fn draw_save_load_windows_system(
     In(ctx): In<egui::Context>,
     mut save_ui: ResMut<SaveUiState>,
@@ -239,20 +240,18 @@ pub fn draw_save_load_windows_system(
                             Path::new(PLANET_SAVE_DIR).join(format!("{}.planet", clean_name));
 
                         let geo_bytes = bincode::serialize(&*geology).ok();
-                        let clim_bytes = if save_ui.save_include_climate
-                            && !climate.temperatures.is_empty()
-                        {
-                            bincode::serialize(&*climate).ok()
-                        } else {
-                            None
-                        };
-                        let hydro_bytes = if save_ui.save_include_hydrology
-                            && !hydrology.biomes.is_empty()
-                        {
-                            bincode::serialize(&*hydrology).ok()
-                        } else {
-                            None
-                        };
+                        let clim_bytes =
+                            if save_ui.save_include_climate && !climate.temperatures.is_empty() {
+                                bincode::serialize(&*climate).ok()
+                            } else {
+                                None
+                            };
+                        let hydro_bytes =
+                            if save_ui.save_include_hydrology && !hydrology.biomes.is_empty() {
+                                bincode::serialize(&*hydrology).ok()
+                            } else {
+                                None
+                            };
 
                         let save_data = PlanetSaveFile {
                             version: PLANET_FILE_VERSION,
@@ -269,7 +268,8 @@ pub fn draw_save_load_windows_system(
                         {
                             Ok(()) => {
                                 save_ui.refresh_lists();
-                                save_ui.set_ok(format!("Планета «{}» успешно сохранена", clean_name));
+                                save_ui
+                                    .set_ok(format!("Планета «{}» успешно сохранена", clean_name));
                             }
                             Err(err) => {
                                 save_ui.set_err(format!("Ошибка сохранения планеты: {}", err));
@@ -314,7 +314,8 @@ pub fn draw_save_load_windows_system(
                                     ui.with_layout(
                                         egui::Layout::right_to_left(egui::Align::Center),
                                         |ui| {
-                                            if ui.button("🗑").on_hover_text("Удалить").clicked() {
+                                            if ui.button("🗑").on_hover_text("Удалить").clicked()
+                                            {
                                                 let _ = fs::remove_file(&entry.path);
                                                 save_ui.refresh_lists();
                                             }
@@ -518,6 +519,7 @@ pub fn draw_save_load_windows_system(
 
 /// Умный загрузчик планеты: проверяет сетку, поочередно распаковывает слои
 /// и при нехватке любого этапа инициирует/предлагает догенерацию ровно с него.
+#[allow(clippy::too_many_arguments)]
 fn load_planet_from_path(
     path: &Path,
     planet_name: &str,
@@ -671,7 +673,10 @@ fn load_planet_from_path(
             ));
             gen_req.request(stage);
         } else {
-            save_ui.set_ok(format!("Планета «{}» загружена частично ({})", planet_name, reason));
+            save_ui.set_ok(format!(
+                "Планета «{}» загружена частично ({})",
+                planet_name, reason
+            ));
             save_ui.pending_prompt = Some(MissingStagePrompt {
                 planet_name: planet_name.to_string(),
                 missing_from: stage,

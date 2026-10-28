@@ -1,8 +1,8 @@
 // src/domains/tectonics/tectonics_palettes.rs
 
-use bevy::prelude::*;
 use super::tectonics_data::{GeologyLayer, PlateType, RockType};
 use bevy::color::{Color, ColorToComponents};
+use bevy::prelude::*;
 
 pub fn build_lithology_colors(geology: &GeologyLayer) -> Vec<[f32; 4]> {
     geology
@@ -13,15 +13,15 @@ pub fn build_lithology_colors(geology: &GeologyLayer) -> Vec<[f32; 4]> {
             let elev = geology.elevations[i];
             let base_rgb = match rock {
                 // Магматические и метаморфические
-                RockType::Granite => [0.92, 0.48, 0.58],       // Розово-коралловый (гранитные батолиты)
-                RockType::GneissSchist => [0.64, 0.44, 0.74],  // Лавандово-пурпурный (метаморфиты и щиты)
-                RockType::Andesite => [0.88, 0.32, 0.18],      // Ярко-терракотовый (вулканические дуги)
-                RockType::FloodBasalt => [0.28, 0.25, 0.30],   // Темный базальтовый (траппы, рифты, плюмы)
+                RockType::Granite => [0.92, 0.48, 0.58], // Розово-коралловый (гранитные батолиты)
+                RockType::GneissSchist => [0.64, 0.44, 0.74], // Лавандово-пурпурный (метаморфиты и щиты)
+                RockType::Andesite => [0.88, 0.32, 0.18], // Ярко-терракотовый (вулканические дуги)
+                RockType::FloodBasalt => [0.28, 0.25, 0.30], // Темный базальтовый (траппы, рифты, плюмы)
 
                 // Осадочные суши и шельфа
-                RockType::Sandstone => [0.88, 0.76, 0.44],     // Песочно-золотистый (песчаники)
-                RockType::ShaleClay => [0.52, 0.62, 0.45],     // Оливково-серо-зеленый (глины и сланцы)
-                RockType::Limestone => [0.48, 0.84, 0.82],     // Светло-бирюзовый (известняки и рифы)
+                RockType::Sandstone => [0.88, 0.76, 0.44], // Песочно-золотистый (песчаники)
+                RockType::ShaleClay => [0.52, 0.62, 0.45], // Оливково-серо-зеленый (глины и сланцы)
+                RockType::Limestone => [0.48, 0.84, 0.82], // Светло-бирюзовый (известняки и рифы)
 
                 // Океаническое ложа
                 RockType::OceanicBasalt => [0.16, 0.22, 0.34], // Темно-сине-серый (молодой базальт MORB)
@@ -30,9 +30,13 @@ pub fn build_lithology_colors(geology: &GeologyLayer) -> Vec<[f32; 4]> {
 
             // Слегка приглушаем яркость под водой, чтобы береговая линия читалась мгновенно
             let shade = if elev <= 0.0 { 0.72 } else { 1.0 };
-            Color::srgb(base_rgb[0] * shade, base_rgb[1] * shade, base_rgb[2] * shade)
-                .to_linear()
-                .to_f32_array()
+            Color::srgb(
+                base_rgb[0] * shade,
+                base_rgb[1] * shade,
+                base_rgb[2] * shade,
+            )
+            .to_linear()
+            .to_f32_array()
         })
         .collect()
 }

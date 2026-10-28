@@ -88,9 +88,14 @@ pub(super) fn compute_soils(
         let slope_wash = (max_slope * config.slope_erosion_sensitivity).clamp(0.0, 0.75);
         let basin_deposition = (valley_concavity * 12.0).clamp(0.0, 0.35);
 
-        sand = (sand - chem_weathering * 0.35 + slope_wash * 0.45 + frost_weathering * 0.10).max(0.05);
-        silt = (silt + frost_weathering * 0.25 + basin_deposition * 0.20 - chem_weathering * 0.15 - slope_wash * 0.20).max(0.05);
-        clay = (clay + chem_weathering * 0.50 + basin_deposition * 0.25 - slope_wash * 0.25).max(0.05);
+        sand =
+            (sand - chem_weathering * 0.35 + slope_wash * 0.45 + frost_weathering * 0.10).max(0.05);
+        silt = (silt + frost_weathering * 0.25 + basin_deposition * 0.20
+            - chem_weathering * 0.15
+            - slope_wash * 0.20)
+            .max(0.05);
+        clay =
+            (clay + chem_weathering * 0.50 + basin_deposition * 0.25 - slope_wash * 0.25).max(0.05);
 
         let tex_sum = sand + silt + clay;
         sand /= tex_sum;
@@ -99,8 +104,10 @@ pub(super) fn compute_soils(
         hydrology.soil_texture[i] = [sand, silt, clay];
 
         // 5. Мощность почвенного профиля (глубина)
-        let climate_depth_mod = (0.45 + 0.55 * (wet_factor * 0.7 + heat_factor * 0.3)).clamp(0.3, 1.0);
-        let slope_depth_factor = (1.0 - max_slope * config.slope_erosion_sensitivity * 0.85).clamp(0.08, 1.0);
+        let climate_depth_mod =
+            (0.45 + 0.55 * (wet_factor * 0.7 + heat_factor * 0.3)).clamp(0.3, 1.0);
+        let slope_depth_factor =
+            (1.0 - max_slope * config.slope_erosion_sensitivity * 0.85).clamp(0.08, 1.0);
         let depth = (slope_depth_factor * climate_depth_mod).clamp(0.08, 1.0);
         hydrology.soil_depth[i] = depth;
 
@@ -108,7 +115,11 @@ pub(super) fn compute_soils(
         let is_permafrost = mean_temp < config.permafrost_temp_threshold || warm_season_temp < 3.0;
 
         // Ил и суглинки лучше всего удерживают доступную растениям воду; вулканический пепел (Andisol) повышает WHC
-        let volcanic_bonus = if geology.volcano_mask[i] || rock == RockType::Andesite { 1.25 } else { 1.0 };
+        let volcanic_bonus = if geology.volcano_mask[i] || rock == RockType::Andesite {
+            1.25
+        } else {
+            1.0
+        };
         let specific_whc = (0.12 * sand + 0.52 * silt + 0.38 * clay) * volcanic_bonus;
         hydrology.water_capacity[i] = (specific_whc * (0.25 + 0.75 * depth)).clamp(0.05, 1.0);
 
@@ -188,7 +199,9 @@ fn classify_soil_type(
 
     // 8. Прохладные влажные хвойные леса и кислые породы -> Подзолы
     if mean_temp < 9.5 && moisture_index >= 0.55
-        || (mean_temp < 13.5 && sand > 0.48 && matches!(rock, RockType::Granite | RockType::Sandstone))
+        || (mean_temp < 13.5
+            && sand > 0.48
+            && matches!(rock, RockType::Granite | RockType::Sandstone))
     {
         return SoilType::Podzol;
     }

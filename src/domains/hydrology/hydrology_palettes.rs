@@ -1,10 +1,10 @@
 // src/domains/hydrology/hydrology_palettes.rs
 
-use bevy::color::{Color, ColorToComponents};
 use super::hydrology_data::{Biome, HydrologyLayer, SoilType};
+use bevy::color::{Color, ColorToComponents};
 
 pub fn build_soil_moisture_colors(
-    geology: & crate::domains::tectonics::tectonics_data::GeologyLayer,
+    geology: &crate::domains::tectonics::tectonics_data::GeologyLayer,
     hydrology: &HydrologyLayer,
 ) -> Vec<[f32; 4]> {
     hydrology

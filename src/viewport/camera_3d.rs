@@ -1,19 +1,18 @@
 // src/viewport/camera_3d.rs
 
 use super::Globe;
+use crate::world::WorldConfig;
+#[cfg(target_os = "macos")]
+use bevy::input::gestures::PinchGesture;
 use bevy::{
     input::mouse::{AccumulatedMouseMotion, MouseWheel},
     prelude::*,
 };
-#[cfg(target_os = "macos")]
-use bevy::input::gestures::PinchGesture;
-use crate::world::WorldConfig;
 
 #[derive(Component, Default)]
 pub struct GlobeInertia {
     pub velocity: Vec2,
 }
-
 
 pub fn rotate_globe(
     mut query: Query<(&mut Transform, &mut GlobeInertia), With<Globe>>,
@@ -77,8 +76,7 @@ pub fn set_default_camera_zoom(
 /// Зум от колеса мыши и трекпада (MouseWheel), а также от PinchGesture на macOS.
 pub fn zoom_camera(
     mut scroll_events: MessageReader<MouseWheel>,
-    #[cfg(target_os = "macos")]
-    mut pinch_events: MessageReader<PinchGesture>,
+    #[cfg(target_os = "macos")] mut pinch_events: MessageReader<PinchGesture>,
     mut query: Query<&mut Transform, With<Camera3d>>,
     config: Res<WorldConfig>,
 ) {
@@ -124,22 +122,18 @@ pub fn keyboard_zoom(
     if (keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight))
         && keys.just_pressed(KeyCode::Equal)
     {
-        transform.translation.z =
-            (transform.translation.z - step).clamp(min_zoom, max_zoom);
+        transform.translation.z = (transform.translation.z - step).clamp(min_zoom, max_zoom);
     }
     if keys.just_pressed(KeyCode::NumpadAdd) {
-        transform.translation.z =
-            (transform.translation.z - step).clamp(min_zoom, max_zoom);
+        transform.translation.z = (transform.translation.z - step).clamp(min_zoom, max_zoom);
     }
 
     // Отдалить: '-' или NumpadSubtract
     if keys.just_pressed(KeyCode::Minus) {
-        transform.translation.z =
-            (transform.translation.z + step).clamp(min_zoom, max_zoom);
+        transform.translation.z = (transform.translation.z + step).clamp(min_zoom, max_zoom);
     }
     if keys.just_pressed(KeyCode::NumpadSubtract) {
-        transform.translation.z =
-            (transform.translation.z + step).clamp(min_zoom, max_zoom);
+        transform.translation.z = (transform.translation.z + step).clamp(min_zoom, max_zoom);
     }
 }
 

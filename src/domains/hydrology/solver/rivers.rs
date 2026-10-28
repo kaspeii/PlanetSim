@@ -77,7 +77,11 @@ pub(super) fn compute_rivers(
         // Зимний снег, который тает весной/летом, дает залповый сток (не успевая испариться)
         let cold_temp = t_winter.min(t_spring);
         let warm_temp = t_summer.max(t_spring);
-        let cold_precip = if t_winter < t_summer { p_winter } else { p_summer };
+        let cold_precip = if t_winter < t_summer {
+            p_winter
+        } else {
+            p_summer
+        };
         let snow_share = ClimateLayer::snow_fraction(cold_temp);
         let melt_factor = ((warm_temp - 0.0) / 8.0).clamp(0.0, 1.0);
         let snowmelt_bonus = cold_precip * snow_share * melt_factor * 0.30;
@@ -114,7 +118,10 @@ pub(super) fn compute_rivers(
         if h <= 0.0 {
             visited[i] = true;
             filled_elev[i] = h;
-            heap.push(FloodNode { elev: h, cell_id: i });
+            heap.push(FloodNode {
+                elev: h,
+                cell_id: i,
+            });
         }
     }
 
@@ -226,8 +233,8 @@ pub(super) fn compute_rivers(
         // суглинки и глины (высокий WHC) держат воду, чистые пески и карст теряют быстрее
         let retention_mod = 1.0 + (whc - 0.30) * config.soil_biome_influence
             - (sand - 0.45).max(0.0) * 0.35 * config.soil_biome_influence;
-        let effective_infiltration =
-            (annual_precip * retention_mod.clamp(0.5, 1.50)) * (1.0 - geology.lithology[i].karst_permeability() * 0.35);
+        let effective_infiltration = (annual_precip * retention_mod.clamp(0.5, 1.50))
+            * (1.0 - geology.lithology[i].karst_permeability() * 0.35);
 
         let rain_soil_moisture = effective_infiltration / (effective_infiltration + pet * 0.7);
 
@@ -285,13 +292,15 @@ pub(super) fn compute_rivers(
         hydrology.soil_moisture[i] = total_sm;
 
         // Если река или низина сильно насытили почву водой — формируются пойменные/глеевые почвы (Gleysol)
-        if total_sm > 0.72 && elev < 0.15 && max_slope < 0.012 {
-            if matches!(
+        if total_sm > 0.72
+            && elev < 0.15
+            && max_slope < 0.012
+            && matches!(
                 hydrology.soils[i],
                 SoilType::Aridisol | SoilType::Cambisol | SoilType::Chernozem
-            ) {
-                hydrology.soils[i] = SoilType::Gleysol;
-            }
+            )
+        {
+            hydrology.soils[i] = SoilType::Gleysol;
         }
     }
 }

@@ -79,7 +79,9 @@ pub(super) fn compute_biomes(
         }
 
         // Высокогорные скалы и осыпи (крутые склоны на Leptosol или выше линии леса)
-        if soil == SoilType::Leptosol && (elev > 0.22 || max_slope > config.mountain_slope_threshold * 1.15) {
+        if soil == SoilType::Leptosol
+            && (elev > 0.22 || max_slope > config.mountain_slope_threshold * 1.15)
+        {
             hydrology.biomes[i] = Biome::AlpineBare;
             continue;
         }

@@ -36,18 +36,14 @@ pub fn draw_hydrology_tab_system(
             .text("Порог мерзлоты (°C)"),
     );
     ui.add(
-        egui::Slider::new(&mut config.aridity_evap_scale, 0.4..=2.0)
-            .text("Масштаб засушливости"),
+        egui::Slider::new(&mut config.aridity_evap_scale, 0.4..=2.0).text("Масштаб засушливости"),
     );
 
     ui.add_space(10.0);
     ui.separator();
     ui.label("2. Речная сеть:");
 
-    ui.add(
-        egui::Slider::new(&mut config.runoff_multiplier, 0.2..=3.0)
-            .text("Множитель стока"),
-    );
+    ui.add(egui::Slider::new(&mut config.runoff_multiplier, 0.2..=3.0).text("Множитель стока"));
     ui.add(
         egui::Slider::new(&mut config.lithology_erosion_bias, 0.0..=0.05)
             .text("Влияние мягкости пород"),
@@ -63,10 +59,7 @@ pub fn draw_hydrology_tab_system(
         )
         .changed();
     mesh_changed |= ui
-        .add(
-            egui::Slider::new(&mut config.river_width_scale, 0.3..=5.0)
-                .text("Ширина русел"),
-        )
+        .add(egui::Slider::new(&mut config.river_width_scale, 0.3..=5.0).text("Ширина русел"))
         .changed();
 
     ui.add(
@@ -77,7 +70,7 @@ pub fn draw_hydrology_tab_system(
         &mut config.coupled_climate_feedback,
         "Обратная связь с климатом (Альбедо и Испарение)",
     );
-    
+
     ui.add_space(10.0);
     ui.separator();
     ui.label("3. Биомы и Экология:");
@@ -91,8 +84,7 @@ pub fn draw_hydrology_tab_system(
             .text("Порог речных оазисов"),
     );
     ui.add(
-        egui::Slider::new(&mut config.wetland_max_slope, 0.002..=0.025)
-            .text("Уклон заболачивания"),
+        egui::Slider::new(&mut config.wetland_max_slope, 0.002..=0.025).text("Уклон заболачивания"),
     );
 
     ui.add_space(12.0);

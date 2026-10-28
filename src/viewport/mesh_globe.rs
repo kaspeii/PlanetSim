@@ -231,7 +231,10 @@ pub fn build_river_mesh(
     let threshold = config.river_threshold.max(1e-6);
 
     if flows.len() != topology.cells.len() {
-        let mut empty = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        let mut empty = Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::default(),
+        );
         empty.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
         empty.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
         empty.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
@@ -272,7 +275,11 @@ pub fn build_river_mesh(
             continue;
         }
 
-        let render_h = if flatten_water { real_h.max(0.0) } else { real_h };
+        let render_h = if flatten_water {
+            real_h.max(0.0)
+        } else {
+            real_h
+        };
         let r_top = radius + render_h;
         let up_normal = cell.center;
         let lift_vec = up_normal * surface_lift;
@@ -435,7 +442,14 @@ pub fn build_river_mesh(
                     waterfall_color,
                     waterfall_color,
                 ]);
-                indices.extend_from_slice(&[base, base + 2, base + 1, base + 1, base + 2, base + 3]);
+                indices.extend_from_slice(&[
+                    base,
+                    base + 2,
+                    base + 1,
+                    base + 1,
+                    base + 2,
+                    base + 3,
+                ]);
                 if positions.is_empty() {
                     positions.extend_from_slice(&[[0.0, 0.0, 0.0]; 3]);
                     normals.extend_from_slice(&[[0.0, 1.0, 0.0]; 3]);
@@ -503,7 +517,11 @@ fn push_center_hub(
     up_normal: Vec3,
     color: [f32; 4],
 ) {
-    let up_ref = if up_normal.y.abs() < 0.99 { Vec3::Y } else { Vec3::X };
+    let up_ref = if up_normal.y.abs() < 0.99 {
+        Vec3::Y
+    } else {
+        Vec3::X
+    };
     let t1 = up_normal.cross(up_ref).normalize_or_zero();
     let t2 = up_normal.cross(t1).normalize_or_zero();
 
