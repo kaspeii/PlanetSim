@@ -1,5 +1,10 @@
+# .cargo/config.toml
+# Кроссплатформенная конфигурация быстрой линковки для Bevy (без локальных путей)
+
 [target.x86_64-pc-windows-msvc]
-linker = "C:\\Users\\suslo\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\lib\\rustlib\\x86_64-pc-windows-msvc\\bin\\rust-lld.exe"
+# rustup автоматически добавляет прокси rust-lld.exe в ~/.cargo/bin,
+# поэтому указывать полный путь к папке пользователя не нужно.
+linker = "rust-lld.exe"
 
 [target.x86_64-unknown-linux-gnu]
 linker = "clang"
