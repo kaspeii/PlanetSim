@@ -73,7 +73,8 @@ pub(super) fn compute_season_moisture(
         scratch.moisture_capacity[i] = cap;
 
         if elevs[i] <= 0.0 {
-            let open_water = open_water_fraction(snap.albedo[i], config.ocean_albedo);
+            let ice_bonus = if surface_wetness[i] < 0.20 { 0.20 } else { 1.0 };
+            let open_water = open_water_fraction(snap.albedo[i], config.ocean_albedo) * ice_bonus;
             let base_rh = 0.80 + 0.15 * open_water;
             let subsidence_mod = 1.0 - 0.18 * p.max(0.0);
             let init_rh =

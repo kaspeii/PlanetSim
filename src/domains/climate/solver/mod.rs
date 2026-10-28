@@ -269,6 +269,7 @@ pub fn simulate_all_seasons(
         continentality,
         surface_albedo,
         surface_wetness,
+        surface_heat_capacity,
         spring,
         summer,
         winter,
@@ -278,22 +279,23 @@ pub fn simulate_all_seasons(
     let cont: &[f32] = continentality;
     let surf_alb: &[f32] = surface_albedo;
     let surf_wet: &[f32] = surface_wetness;
+    let surf_hc: &[f32] = surface_heat_capacity;
 
     logger.start_step("Климат: симуляция 3 сезонов (Весна, Лето, Зима)...");
     rayon::scope(|s| {
         s.spawn(|_| {
             simulate_single_season(
-                0.0, topology, geology, cont, surf_alb, surf_wet, config, &precalc, spring,
+                0.0, topology, geology, cont, surf_alb, surf_wet, surf_hc, config, &precalc, spring,
             );
         });
         s.spawn(|_| {
             simulate_single_season(
-                1.0, topology, geology, cont, surf_alb, surf_wet, config, &precalc, summer,
+                1.0, topology, geology, cont, surf_alb, surf_wet, surf_hc, config, &precalc, summer,
             );
         });
         s.spawn(|_| {
             simulate_single_season(
-                -1.0, topology, geology, cont, surf_alb, surf_wet, config, &precalc, winter,
+                -1.0, topology, geology, cont, surf_alb, surf_wet, surf_hc, config, &precalc, winter,
             );
         });
     });
@@ -321,6 +323,7 @@ fn simulate_single_season(
     continentality: &[f32],
     surface_albedo: &[f32],
     surface_wetness: &[f32],
+    surface_heat_capacity: &[f32],
     config: &ClimateConfig,
     precalc: &SolverPrecalc,
     snap: &mut SeasonalSnapshot,
@@ -578,7 +581,22 @@ fn simulate_single_season(
                     rad_temp * (1.0 - air_blend) + scratch.advected_temps[i] * air_blend;
             }
 
-            let final_temp = scratch.sea_level_temps[i] - precalc.mountain_cooling[i];
+            let mut final_temp = scratch.sea_level_temps[i] - precalc.mountain_cooling[i];
+
+            // Теплоёмкость сглаживает сезонный размах только на СУШЕ.
+            // Океан уже сглажен через ocean_advection_rate (иначе двойной учёт).
+            if elev > 0.0 {
+                let hc = surface_heat_capacity[i].clamp(0.0, 1.0);
+                if hc > 0.01 {
+                    // Осреднённая по сезонам температура (равноденственная инсоляция):
+                    let annual_mean = config.pole_temp
+                        + (config.equator_temp - config.pole_temp) * precalc.cos_lat[i] * 0.82;
+                    let damping = (1.0 - hc * 0.55).max(0.35);
+                    final_temp = annual_mean + (final_temp - annual_mean) * damping;
+                    scratch.sea_level_temps[i] = final_temp + precalc.mountain_cooling[i];
+                }
+            }
+
             snap.temperatures[i] = final_temp;
             snap.albedo[i] = calc_albedo(final_temp, elev, surface_albedo[i], config);
         }

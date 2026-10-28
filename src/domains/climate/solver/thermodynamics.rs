@@ -62,7 +62,7 @@ pub(super) fn calc_albedo(
     config: &ClimateConfig,
 ) -> f32 {
     let base_albedo = if elevation <= 0.0 {
-        config.ocean_albedo
+        base_land_albedo.max(config.ocean_albedo)
     } else {
         base_land_albedo
     };
@@ -72,7 +72,8 @@ pub(super) fn calc_albedo(
     // В густых лесах (низкое бесснежное альбедо < 0.17) темные кроны деревьев
     // частично перекрывают снег, поэтому альбедо не доходит до чистых 0.80 ледника
     let effective_ice_albedo = if elevation > 0.0 && base_land_albedo < 0.17 {
-        config.ice_albedo * 0.78
+        let mask = smoothstep((base_land_albedo - 0.10) / 0.25);
+        config.ice_albedo * (0.62 + 0.38 * mask)
     } else {
         config.ice_albedo
     };

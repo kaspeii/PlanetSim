@@ -107,8 +107,14 @@ pub fn apply_surface_feedback_to_climate(
 
     for i in 0..num_cells {
         if geology.elevations[i] <= 0.0 {
-            climate.surface_albedo[i] = c_config.ocean_albedo;
-            climate.surface_wetness[i] = 1.0;
+            let is_ice = matches!(hydrology.biomes[i], Biome::SeaIce);
+            climate.surface_albedo[i] = if is_ice {
+                0.60 // морской лёд без снега
+            } else {
+                c_config.ocean_albedo
+            };
+            climate.surface_wetness[i] = if is_ice { 0.05 } else { 1.0 };
+            climate.surface_heat_capacity[i] = if is_ice { 0.25 } else { 0.0 };
             continue;
         }
 
@@ -146,9 +152,26 @@ pub fn apply_surface_feedback_to_climate(
             0.0
         };
 
-        let raw_wetness = (sm * 0.55 + vegetation_transpiration + river_evap).clamp(0.08, 1.0);
+        let raw_wetness = sm * 0.55 + vegetation_transpiration + river_evap;
         // Плавно смешиваем с базовым рециклингом конфига (70% биомы/реки + 30% базовый фон),
         // чтобы 2-й проход усиливал зеленые коридоры рек, но не выжигал переходные зоны в пустыню
-        climate.surface_wetness[i] = raw_wetness * 0.72 + c_config.land_moisture_recycling * 0.28;
+        climate.surface_wetness[i] = raw_wetness.max(c_config.land_moisture_recycling * 0.6);
+
+        let hc_base = match biome {
+            Biome::Wetland => 0.92,
+            Biome::TropicalRainforest | Biome::TemperateRainforest => 0.55,
+            Biome::TemperateDeciduousForest
+            | Biome::BorealTaiga
+            | Biome::TropicalSeasonalForest => 0.48,
+            Biome::RiparianOasis => 0.65,
+            Biome::Savanna | Biome::TemperateGrassland => 0.35,
+            Biome::MediterraneanShrubland | Biome::XericShrubland => 0.25,
+            Biome::HotDesert | Biome::ColdDesert => 0.12,
+            Biome::Tundra | Biome::AlpineBare => 0.18,
+            Biome::IceSheet => 0.30,
+            _ => 0.35,
+        };
+        // Влажность почвы повышает теплоёмкость (вода ≈4.2 vs сухая почва ≈0.8)
+        climate.surface_heat_capacity[i] = (hc_base * (0.7 + 0.55 * sm)).clamp(0.08, 1.0);
     }
 }

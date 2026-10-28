@@ -236,6 +236,7 @@ pub fn spawn_generation_task(
     );
 
     let task = thread_pool.spawn(async move {
+        let _ = thread_priority::set_current_thread_priority(thread_priority::ThreadPriority::Min);
         // Шаг 1–2: Тектоника (если нужна)
         let (geology_ref, new_geology) = if let Some(geo) = existing_geology {
             (geo, None)
