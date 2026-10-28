@@ -101,7 +101,7 @@ fn main_menu_ui(
         .show(egui_ctx.get_mut(), |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(10.0);
-                ui.heading("🌍 Planet Simulator");
+                ui.heading("🌍 Planet Sim");
                 ui.weak("Настройте конфиги справа или выберите действие:");
                 ui.add_space(16.0);
 

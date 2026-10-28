@@ -117,7 +117,7 @@ run-profiling:
 
 ## flamegraph: Записать flamegraph (требуется: cargo install flamegraph)
 flamegraph:
-	RUSTFLAGS='-C force-frame-pointers=y' cargo flamegraph --profile profiling --bin SocSim
+	RUSTFLAGS='-C force-frame-pointers=y' cargo flamegraph --profile profiling --bin PlanetSim
 
 ## release-thin: Быстрая оптимизированная сборка (thin-LTO)
 release-thin:
