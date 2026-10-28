@@ -8,7 +8,7 @@ use crate::{
         climate::{climate_data::ClimateLayer, climate_ui::draw_climate_tab_system},
         generator::{GenerationRequest, GenerationTask},
         hydrology::{HydrologyLayer, hydrology_ui::draw_hydrology_tab_system},
-        save::{SaveUiState, draw_save_load_windows_system},
+        save::{SaveLoadTask, SaveUiState, draw_save_load_windows_system},
         tectonics::{GeologyLayer, tectonics_ui::draw_tectonics_tab_system},
     },
     viewport::{Globe, MapOverlay, ViewportViewConfig},
@@ -46,6 +46,7 @@ impl Plugin for UiPlugin {
                     render_ui_shell,
                     main_menu_ui.run_if(in_state(AppState::MainMenu)),
                     generation_progress_overlay,
+                    save_load_progress_overlay,
                 )
                     .chain(),
             )
@@ -101,7 +102,7 @@ fn main_menu_ui(
         .show(egui_ctx.get_mut(), |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(10.0);
-                ui.heading("🌍 Planet Sim");
+                ui.heading("🌍 PlanetSim");
                 ui.weak("Настройте конфиги справа или выберите действие:");
                 ui.add_space(16.0);
 
@@ -262,6 +263,129 @@ fn generation_progress_overlay(
     Ok(())
 }
 
+/// Неблокирующий оверлей сохранения / загрузки планеты (позволяет сразу закрыть окно сейвов)
+fn save_load_progress_overlay(
+    mut contexts: Query<&mut EguiContext>,
+    tasks: Query<&SaveLoadTask>,
+) -> Result {
+    let Some(task) = tasks.iter().next() else {
+        return Ok(());
+    };
+    let Ok(mut egui_ctx) = contexts.single_mut() else {
+        return Ok(());
+    };
+
+    let snap = task.logger.snapshot();
+    let progress = snap.progress();
+
+    let (align, offset) = if task.is_initial && !task.is_saving {
+        (egui::Align2::CENTER_CENTER, [0.0, 0.0])
+    } else {
+        (egui::Align2::CENTER_TOP, [0.0, 42.0])
+    };
+
+    let content_width = 440.0;
+
+    egui::Window::new("save_load_status")
+        .title_bar(false)
+        .resizable(false)
+        .collapsible(false)
+        .anchor(align, offset)
+        .fixed_size([content_width, 0.0])
+        .show(egui_ctx.get_mut(), |ui| {
+            ui.set_width(content_width);
+            ui.add_space(4.0);
+
+            ui.horizontal(|ui| {
+                ui.set_width(content_width);
+                if let Some(ref err) = snap.error {
+                    ui.label(
+                        egui::RichText::new("✖")
+                            .color(egui::Color32::from_rgb(230, 90, 90))
+                            .strong(),
+                    );
+                    ui.strong(format!("Ошибка: {}", err));
+                } else if snap.is_finished {
+                    ui.label(
+                        egui::RichText::new("✔")
+                            .color(egui::Color32::from_rgb(80, 210, 120))
+                            .strong(),
+                    );
+                    let done_text = if task.is_saving {
+                        format!("{} — готово!", task.title)
+                    } else {
+                        format!("{} — завершена!", task.title)
+                    };
+                    ui.strong(done_text);
+                } else {
+                    ui.spinner();
+                    let icon = if task.is_saving { "💾" } else { "📂" };
+                    ui.strong(format!("{} {}...", icon, task.title));
+                }
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Шаг {}/{}  •  {:.2} с",
+                            snap.completed_steps.min(snap.total_steps),
+                            snap.total_steps,
+                            snap.total_elapsed_ms as f32 / 1000.0
+                        ))
+                        .weak()
+                        .monospace(),
+                    );
+                });
+            });
+
+            ui.separator();
+            ui.add_space(2.0);
+
+            for entry in &snap.entries {
+                ui.horizontal(|ui| {
+                    ui.set_width(content_width);
+                    if let Some(ms) = entry.duration_ms {
+                        ui.label(
+                            egui::RichText::new("✔").color(egui::Color32::from_rgb(80, 210, 120)),
+                        );
+                        ui.label(
+                            egui::RichText::new(&entry.message)
+                                .color(egui::Color32::from_gray(200)),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(egui::RichText::new(format!("{} мс", ms)).weak().monospace());
+                        });
+                    } else {
+                        let live_ms = entry.started_at.elapsed().as_millis();
+                        ui.spinner();
+                        ui.label(
+                            egui::RichText::new(&entry.message)
+                                .strong()
+                                .color(egui::Color32::WHITE),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(
+                                egui::RichText::new(format!("{} мс...", live_ms))
+                                    .color(egui::Color32::from_rgb(240, 200, 80))
+                                    .monospace(),
+                            );
+                        });
+                    }
+                });
+                ui.add_space(2.0);
+            }
+
+            ui.add_space(6.0);
+            ui.add(
+                egui::ProgressBar::new(progress)
+                    .show_percentage()
+                    .desired_width(content_width),
+            );
+            ui.add_space(4.0);
+        });
+
+    Ok(())
+}
+
 fn render_ui_shell(world: &mut World) -> Result {
     let mut contexts = world.query::<&mut EguiContext>();
     let Ok(mut egui_ctx) = contexts.single_mut(world) else {
@@ -331,17 +455,48 @@ fn render_ui_shell(world: &mut World) -> Result {
                         let subdivs = world.resource::<WorldTopology>().subdivisions;
                         let seed = world.resource::<WorldConfig>().seed;
                         let has_geo = !world.resource::<GeologyLayer>().elevations.is_empty();
+
+                        // Проверяем активные фоновые задачи для отображения в статус-баре
+                        let active_save_load = world
+                            .query::<&SaveLoadTask>()
+                            .iter(world)
+                            .next()
+                            .map(|t| (t.title.clone(), t.task.is_some()));
+                        let is_generating = world
+                            .query::<&GenerationTask>()
+                            .iter(world)
+                            .next()
+                            .is_some();
+
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.weak(format!(
-                                " Сид: {} | subdiv {} | Статус: {}",
-                                seed,
-                                subdivs,
-                                if has_geo {
-                                    "Планета активна"
-                                } else {
-                                    "Ожидание генерации"
+                            if let Some((title, in_progress)) = active_save_load {
+                                ui.colored_label(
+                                    egui::Color32::from_rgb(240, 200, 80),
+                                    format!(" {} ", title),
+                                );
+                                if in_progress {
+                                    ui.spinner();
                                 }
-                            ));
+                                ui.weak(format!("Сид: {} | subdiv {} | Статус:", seed, subdivs));
+                            } else if is_generating {
+                                ui.colored_label(
+                                    egui::Color32::from_rgb(240, 200, 80),
+                                    " Генерация мира... ",
+                                );
+                                ui.spinner();
+                                ui.weak(format!("Сид: {} | subdiv {} | Статус:", seed, subdivs));
+                            } else {
+                                ui.weak(format!(
+                                    " Сид: {} | subdiv {} | Статус: {}",
+                                    seed,
+                                    subdivs,
+                                    if has_geo {
+                                        "Планета активна"
+                                    } else {
+                                        "Ожидание генерации"
+                                    }
+                                ));
+                            }
                         });
                     });
                 });

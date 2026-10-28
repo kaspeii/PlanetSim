@@ -1,11 +1,17 @@
 // src/domains/save.rs
 
-use bevy::prelude::*;
+use bevy::{
+    prelude::*,
+    tasks::{AsyncComputeTaskPool, Task},
+};
 use bevy_egui::egui;
+use futures_lite::future;
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 
 use crate::{
@@ -64,6 +70,164 @@ pub struct MissingStagePrompt {
     pub reason: String,
 }
 
+/// Запрос на фоновое сохранение или загрузку планеты
+#[derive(Clone)]
+pub enum SaveLoadRequest {
+    SavePlanet {
+        name: String,
+        include_climate: bool,
+        include_hydrology: bool,
+    },
+    LoadPlanet {
+        name: String,
+        path: PathBuf,
+    },
+}
+
+// === ЛОГГЕР ПРОГРЕССА СОХРАНЕНИЯ / ЗАГРУЗКИ ДЛЯ ОВЕРЛЕЯ ===
+
+#[derive(Clone)]
+pub struct SaveLoadLogEntry {
+    pub message: String,
+    pub started_at: Instant,
+    pub duration_ms: Option<u128>,
+}
+
+#[derive(Clone)]
+pub struct SaveLoadSnapshot {
+    pub entries: Vec<SaveLoadLogEntry>,
+    pub completed_steps: usize,
+    pub total_steps: usize,
+    pub total_elapsed_ms: u128,
+    pub is_finished: bool,
+    pub error: Option<String>,
+}
+
+impl SaveLoadSnapshot {
+    pub fn progress(&self) -> f32 {
+        if self.is_finished {
+            return 1.0;
+        }
+        if self.total_steps == 0 {
+            return 0.0;
+        }
+        (self.completed_steps as f32 / self.total_steps as f32).clamp(0.0, 0.99)
+    }
+}
+
+struct InnerSaveLoadLog {
+    entries: Vec<SaveLoadLogEntry>,
+    completed_steps: usize,
+    total_steps: usize,
+    started_at: Instant,
+    finished_elapsed_ms: Option<u128>,
+    is_finished: bool,
+    error: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct SaveLoadLogger {
+    inner: Arc<Mutex<InnerSaveLoadLog>>,
+}
+
+impl SaveLoadLogger {
+    pub fn new(total_steps: usize) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(InnerSaveLoadLog {
+                entries: Vec::with_capacity(total_steps),
+                completed_steps: 0,
+                total_steps,
+                started_at: Instant::now(),
+                finished_elapsed_ms: None,
+                is_finished: false,
+                error: None,
+            })),
+        }
+    }
+
+    pub fn start_step(&self, msg: impl Into<String>) {
+        let msg = msg.into();
+        if let Ok(mut guard) = self.inner.lock() {
+            if let Some(last) = guard.entries.last_mut() {
+                if last.duration_ms.is_none() {
+                    let ms = last.started_at.elapsed().as_millis();
+                    last.duration_ms = Some(ms);
+                    guard.completed_steps += 1;
+                }
+            }
+            guard.entries.push(SaveLoadLogEntry {
+                message: msg,
+                started_at: Instant::now(),
+                duration_ms: None,
+            });
+        }
+    }
+
+    pub fn finish_ok(&self) {
+        if let Ok(mut guard) = self.inner.lock() {
+            if let Some(last) = guard.entries.last_mut() {
+                if last.duration_ms.is_none() {
+                    let ms = last.started_at.elapsed().as_millis();
+                    last.duration_ms = Some(ms);
+                    guard.completed_steps += 1;
+                }
+            }
+            guard.finished_elapsed_ms = Some(guard.started_at.elapsed().as_millis());
+            guard.is_finished = true;
+        }
+    }
+
+    pub fn finish_err(&self, err: impl Into<String>) {
+        let err = err.into();
+        if let Ok(mut guard) = self.inner.lock() {
+            guard.finished_elapsed_ms = Some(guard.started_at.elapsed().as_millis());
+            guard.is_finished = true;
+            guard.error = Some(err);
+        }
+    }
+
+    pub fn snapshot(&self) -> SaveLoadSnapshot {
+        let guard = self.inner.lock().unwrap();
+        let total_elapsed_ms = guard
+            .finished_elapsed_ms
+            .unwrap_or_else(|| guard.started_at.elapsed().as_millis());
+        SaveLoadSnapshot {
+            entries: guard.entries.clone(),
+            completed_steps: guard.completed_steps,
+            total_steps: guard.total_steps,
+            total_elapsed_ms,
+            is_finished: guard.is_finished,
+            error: guard.error.clone(),
+        }
+    }
+}
+
+pub struct LoadedPlanetPayload {
+    pub planet_name: String,
+    pub radius: f32,
+    pub seed: u32,
+    pub new_topology: Option<WorldTopology>,
+    pub geology: GeologyLayer,
+    pub climate: ClimateLayer,
+    pub hydrology: HydrologyLayer,
+    pub missing_stage: Option<(PipelineStage, String)>,
+}
+
+pub enum SaveLoadOutcome {
+    Saved { planet_name: String },
+    Loaded(Box<LoadedPlanetPayload>),
+}
+
+#[derive(Component)]
+pub struct SaveLoadTask {
+    pub title: String,
+    pub is_saving: bool,
+    pub is_initial: bool,
+    pub logger: SaveLoadLogger,
+    pub task: Option<Task<Result<SaveLoadOutcome, String>>>,
+    pub finished_at: Option<Instant>,
+}
+
 #[derive(Resource)]
 pub struct SaveUiState {
     pub show_planets_window: bool,
@@ -84,6 +248,8 @@ pub struct SaveUiState {
 
     pub status_message: Option<(String, bool)>, // (текст, is_error)
     pub pending_prompt: Option<MissingStagePrompt>,
+    pub pending_request: Option<SaveLoadRequest>,
+    pub is_busy: bool,
 }
 
 impl Default for SaveUiState {
@@ -103,6 +269,8 @@ impl Default for SaveUiState {
             config_files: Vec::new(),
             status_message: None,
             pending_prompt: None,
+            pending_request: None,
+            is_busy: false,
         };
         state.refresh_lists();
         state
@@ -115,13 +283,13 @@ impl SaveUiState {
         self.config_files = scan_dir(CONFIG_SAVE_DIR, "json");
     }
 
-    fn set_ok(&mut self, msg: impl Into<String>) {
+    pub fn set_ok(&mut self, msg: impl Into<String>) {
         let s = msg.into();
         info!("{}", s);
         self.status_message = Some((s, false));
     }
 
-    fn set_err(&mut self, msg: impl Into<String>) {
+    pub fn set_err(&mut self, msg: impl Into<String>) {
         let s = msg.into();
         warn!("{}", s);
         self.status_message = Some((s, true));
@@ -178,23 +346,400 @@ fn stage_label(stage: PipelineStage) -> &'static str {
     }
 }
 
-/// Система отрисовки модальных окон сохранения/загрузки планет, конфигов и диалога догенерации
+/// Система запуска фоновых задач сохранения и загрузки планет
 #[allow(clippy::too_many_arguments)]
-pub fn draw_save_load_windows_system(
-    In(ctx): In<egui::Context>,
+pub fn spawn_save_load_task(
+    mut commands: Commands,
+    mut save_ui: ResMut<SaveUiState>,
+    existing_tasks: Query<(Entity, &SaveLoadTask)>,
+    world_config: Res<WorldConfig>,
+    topology: Res<WorldTopology>,
+    geology: Res<GeologyLayer>,
+    climate: Res<ClimateLayer>,
+    hydrology: Res<HydrologyLayer>,
+) {
+    // Если есть активная незавершенная задача — ждём её окончания
+    for (entity, t) in existing_tasks.iter() {
+        if t.task.is_some() {
+            return;
+        }
+        // Если предыдущая задача уже завершилась и просто доигрывает анимацию — убираем её
+        if save_ui.pending_request.is_some() {
+            commands.entity(entity).despawn();
+        }
+    }
+
+    let Some(req) = save_ui.pending_request.take() else {
+        return;
+    };
+
+    let pool = AsyncComputeTaskPool::get();
+    let is_initial = geology.elevations.is_empty();
+
+    match req {
+        SaveLoadRequest::SavePlanet {
+            name,
+            include_climate,
+            include_hydrology,
+        } => {
+            let clean_name = sanitize_filename(&name);
+            let do_climate = include_climate && !climate.temperatures.is_empty();
+            let do_hydrology =
+                include_climate && include_hydrology && !hydrology.biomes.is_empty();
+
+            let total_steps = 2 + usize::from(do_climate) + usize::from(do_hydrology);
+            let logger = SaveLoadLogger::new(total_steps);
+            let thread_logger = logger.clone();
+
+            let radius = world_config.radius;
+            let subdivisions = topology.subdivisions;
+            let seed = world_config.seed;
+
+            let geo_clone = (*geology).clone();
+            let clim_clone = if do_climate {
+                Some((*climate).clone())
+            } else {
+                None
+            };
+            let hydro_clone = if do_hydrology {
+                Some((*hydrology).clone())
+            } else {
+                None
+            };
+
+            save_ui.is_busy = true;
+            let title = format!("Сохранение планеты «{}»", clean_name);
+
+            let task = pool.spawn(async move {
+                thread_logger.start_step("Сериализация слоя тектоники и рельефа...");
+                let geo_bytes = bincode::serialize(&geo_clone)
+                    .map_err(|e| format!("Ошибка упаковки тектоники: {}", e))?;
+
+                let clim_bytes = if let Some(clim) = clim_clone {
+                    thread_logger.start_step("Сериализация климата и сезонов...");
+                    Some(
+                        bincode::serialize(&clim)
+                            .map_err(|e| format!("Ошибка упаковки климата: {}", e))?,
+                    )
+                } else {
+                    None
+                };
+
+                let hydro_bytes = if let Some(hydro) = hydro_clone {
+                    thread_logger.start_step("Сериализация гидрологии и биомов...");
+                    Some(
+                        bincode::serialize(&hydro)
+                            .map_err(|e| format!("Ошибка упаковки гидрологии: {}", e))?,
+                    )
+                } else {
+                    None
+                };
+
+                thread_logger.start_step("Запись контейнера .planet на диск...");
+                let _ = fs::create_dir_all(PLANET_SAVE_DIR);
+                let path = Path::new(PLANET_SAVE_DIR).join(format!("{}.planet", clean_name));
+
+                let save_data = PlanetSaveFile {
+                    version: PLANET_FILE_VERSION,
+                    radius,
+                    subdivisions,
+                    seed,
+                    geology_bytes: Some(geo_bytes),
+                    climate_bytes: clim_bytes,
+                    hydrology_bytes: hydro_bytes,
+                };
+
+                let file_bytes = bincode::serialize(&save_data)
+                    .map_err(|e| format!("Ошибка сборки файла: {}", e))?;
+                fs::write(&path, file_bytes)
+                    .map_err(|e| format!("Ошибка записи на диск: {}", e))?;
+
+                thread_logger.finish_ok();
+                Ok(SaveLoadOutcome::Saved {
+                    planet_name: clean_name,
+                })
+            });
+
+            commands.spawn(SaveLoadTask {
+                title,
+                is_saving: true,
+                is_initial,
+                logger,
+                task: Some(task),
+                finished_at: None,
+            });
+        }
+
+        SaveLoadRequest::LoadPlanet { name, path } => {
+            let current_subdivs = topology.subdivisions;
+            let current_num_cells = topology.cells.len();
+
+            let logger = SaveLoadLogger::new(4);
+            let thread_logger = logger.clone();
+
+            save_ui.is_busy = true;
+            let title = format!("Загрузка планеты «{}»", name);
+
+            let task = pool.spawn(async move {
+                thread_logger.start_step("Чтение файла и распаковка контейнера...");
+                let bytes =
+                    fs::read(&path).map_err(|e| format!("Не удалось прочитать файл: {}", e))?;
+
+                let save_file: PlanetSaveFile = bincode::deserialize(&bytes)
+                    .map_err(|e| format!("Поврежденный заголовок сохранения: {}", e))?;
+
+                let (new_topology, num_cells) = if save_file.subdivisions != current_subdivs {
+                    thread_logger.start_step(format!(
+                        "Построение топологии сферы (subdiv {})...",
+                        save_file.subdivisions
+                    ));
+                    let topo = WorldTopology::new(save_file.subdivisions);
+                    let len = topo.cells.len();
+                    (Some(topo), len)
+                } else {
+                    thread_logger.start_step("Проверка геометрии сетки...");
+                    (None, current_num_cells)
+                };
+
+                let mut missing_stage: Option<(PipelineStage, String)> = None;
+
+                thread_logger.start_step("Распаковка тектоники и рельефа...");
+                let geology = match save_file
+                    .geology_bytes
+                    .as_deref()
+                    .map(bincode::deserialize::<GeologyLayer>)
+                {
+                    Some(Ok(loaded_geo)) if loaded_geo.elevations.len() == num_cells => loaded_geo,
+                    Some(Ok(_)) => {
+                        let mut g = GeologyLayer::default();
+                        g.resize(num_cells);
+                        missing_stage = Some((
+                            PipelineStage::Tectonics,
+                            "размер сетки рельефа не совпал с топологией".to_string(),
+                        ));
+                        g
+                    }
+                    Some(Err(_)) => {
+                        let mut g = GeologyLayer::default();
+                        g.resize(num_cells);
+                        missing_stage = Some((
+                            PipelineStage::Tectonics,
+                            "формат слоя тектоники устарел".to_string(),
+                        ));
+                        g
+                    }
+                    None => {
+                        let mut g = GeologyLayer::default();
+                        g.resize(num_cells);
+                        missing_stage = Some((
+                            PipelineStage::Tectonics,
+                            "отсутствует слой тектоники".to_string(),
+                        ));
+                        g
+                    }
+                };
+
+                thread_logger.start_step("Распаковка климата, гидрологии и биомов...");
+                let climate = if missing_stage.is_none() {
+                    match save_file
+                        .climate_bytes
+                        .as_deref()
+                        .map(bincode::deserialize::<ClimateLayer>)
+                    {
+                        Some(Ok(loaded_clim)) if loaded_clim.temperatures.len() == num_cells => {
+                            loaded_clim
+                        }
+                        Some(Ok(_)) | Some(Err(_)) => {
+                            let mut c = ClimateLayer::default();
+                            c.resize(num_cells);
+                            missing_stage = Some((
+                                PipelineStage::Climate,
+                                "данные климата устарели или не совпадают по сетке".to_string(),
+                            ));
+                            c
+                        }
+                        None => {
+                            let mut c = ClimateLayer::default();
+                            c.resize(num_cells);
+                            missing_stage = Some((
+                                PipelineStage::Climate,
+                                "отсутствует этап климата".to_string(),
+                            ));
+                            c
+                        }
+                    }
+                } else {
+                    let mut c = ClimateLayer::default();
+                    c.resize(num_cells);
+                    c
+                };
+
+                let hydrology = if missing_stage.is_none() {
+                    match save_file
+                        .hydrology_bytes
+                        .as_deref()
+                        .map(bincode::deserialize::<HydrologyLayer>)
+                    {
+                        Some(Ok(loaded_hydro)) if loaded_hydro.biomes.len() == num_cells => {
+                            loaded_hydro
+                        }
+                        Some(Ok(_)) | Some(Err(_)) => {
+                            let mut h = HydrologyLayer::default();
+                            h.resize(num_cells);
+                            missing_stage = Some((
+                                PipelineStage::Hydrology,
+                                "данные гидрологии и биомов устарели".to_string(),
+                            ));
+                            h
+                        }
+                        None => {
+                            let mut h = HydrologyLayer::default();
+                            h.resize(num_cells);
+                            missing_stage = Some((
+                                PipelineStage::Hydrology,
+                                "отсутствует этап гидрологии и биомов".to_string(),
+                            ));
+                            h
+                        }
+                    }
+                } else {
+                    let mut h = HydrologyLayer::default();
+                    h.resize(num_cells);
+                    h
+                };
+
+                thread_logger.finish_ok();
+                Ok(SaveLoadOutcome::Loaded(Box::new(LoadedPlanetPayload {
+                    planet_name: name,
+                    radius: save_file.radius,
+                    seed: save_file.seed,
+                    new_topology,
+                    geology,
+                    climate,
+                    hydrology,
+                    missing_stage,
+                })))
+            });
+
+            commands.spawn(SaveLoadTask {
+                title,
+                is_saving: false,
+                is_initial,
+                logger,
+                task: Some(task),
+                finished_at: None,
+            });
+        }
+    }
+}
+
+/// Система опроса фоновых задач сохранения/загрузки и мгновенного применения результата
+#[allow(clippy::too_many_arguments)]
+pub fn handle_save_load_task(
+    mut commands: Commands,
+    mut tasks: Query<(Entity, &mut SaveLoadTask)>,
     mut save_ui: ResMut<SaveUiState>,
     mut world_config: ResMut<WorldConfig>,
     mut topology: ResMut<WorldTopology>,
     mut geology: ResMut<GeologyLayer>,
     mut climate: ResMut<ClimateLayer>,
     mut hydrology: ResMut<HydrologyLayer>,
-    mut t_config: ResMut<TectonicsConfig>,
-    mut c_config: ResMut<ClimateConfig>,
-    mut h_config: ResMut<HydrologyConfig>,
     mut pipeline: ResMut<WorldPipeline>,
     mut gen_req: ResMut<GenerationRequest>,
     mut next_state: ResMut<NextState<AppState>>,
 ) {
+    let Some((entity, mut task_comp)) = tasks.iter_mut().next() else {
+        return;
+    };
+
+    if let Some(ref mut async_task) = task_comp.task {
+        if let Some(result) = future::block_on(future::poll_once(async_task)) {
+            task_comp.task = None;
+            task_comp.finished_at = Some(Instant::now());
+            save_ui.is_busy = false;
+
+            match result {
+                Ok(SaveLoadOutcome::Saved { planet_name }) => {
+                    save_ui.refresh_lists();
+                    save_ui.set_ok(format!("Планета «{}» успешно сохранена", planet_name));
+                }
+                Ok(SaveLoadOutcome::Loaded(payload)) => {
+                    let LoadedPlanetPayload {
+                        planet_name,
+                        radius,
+                        seed,
+                        new_topology,
+                        geology: loaded_geo,
+                        climate: loaded_clim,
+                        hydrology: loaded_hydro,
+                        missing_stage,
+                    } = *payload;
+
+                    world_config.radius = radius;
+                    world_config.seed = seed;
+                    if let Some(new_topo) = new_topology {
+                        world_config.next_planet_subdivisions = new_topo.subdivisions;
+                        *topology = new_topo;
+                    }
+
+                    *geology = loaded_geo;
+                    *climate = loaded_clim;
+                    *hydrology = loaded_hydro;
+
+                    pipeline.rebuild_mesh = true;
+                    pipeline.rebuild_rivers = true;
+                    next_state.set(AppState::InGame);
+                    save_ui.planet_save_name = planet_name.clone();
+
+                    if let Some((stage, reason)) = missing_stage {
+                        if save_ui.auto_regenerate_missing {
+                            save_ui.set_ok(format!(
+                                "Загружена «{}» ({}). Запущена авто-догенерация...",
+                                planet_name, reason
+                            ));
+                            gen_req.request(stage);
+                        } else {
+                            save_ui.set_ok(format!(
+                                "Планета «{}» загружена частично ({})",
+                                planet_name, reason
+                            ));
+                            save_ui.pending_prompt = Some(MissingStagePrompt {
+                                planet_name,
+                                missing_from: stage,
+                                reason,
+                            });
+                        }
+                    } else {
+                        save_ui.set_ok(format!("Планета «{}» полностью загружена!", planet_name));
+                    }
+                }
+                Err(err) => {
+                    task_comp.logger.finish_err(&err);
+                    save_ui.set_err(err);
+                }
+            }
+        }
+    } else if let Some(done_at) = task_comp.finished_at {
+        // Держим оверлей 0.65 с после завершения, чтобы пользователь увидел 100% и тайминги
+        if done_at.elapsed() >= Duration::from_millis(650) {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+/// Система отрисовки модальных окон сохранения/загрузки планет, конфигов и диалога догенерации
+#[allow(clippy::too_many_arguments)]
+pub fn draw_save_load_windows_system(
+    In(ctx): In<egui::Context>,
+    mut save_ui: ResMut<SaveUiState>,
+    geology: Res<GeologyLayer>,
+    mut t_config: ResMut<TectonicsConfig>,
+    mut c_config: ResMut<ClimateConfig>,
+    mut h_config: ResMut<HydrologyConfig>,
+    mut gen_req: ResMut<GenerationRequest>,
+) {
+    let is_busy = save_ui.is_busy;
+
     // === 1. ОКНО СОХРАНЕНИЯ / ЗАГРУЗКИ ПЛАНЕТ ===
     if save_ui.show_planets_window {
         let mut open = save_ui.show_planets_window;
@@ -227,7 +772,7 @@ pub fn draw_save_load_windows_system(
                 });
 
                 ui.add_space(4.0);
-                ui.add_enabled_ui(has_planet, |ui| {
+                ui.add_enabled_ui(has_planet && !is_busy, |ui| {
                     if ui
                         .add_sized(
                             [ui.available_width(), 32.0],
@@ -235,48 +780,11 @@ pub fn draw_save_load_windows_system(
                         )
                         .clicked()
                     {
-                        let clean_name = sanitize_filename(&save_ui.planet_save_name);
-                        let _ = fs::create_dir_all(PLANET_SAVE_DIR);
-                        let path =
-                            Path::new(PLANET_SAVE_DIR).join(format!("{}.planet", clean_name));
-
-                        let geo_bytes = bincode::serialize(&*geology).ok();
-                        let clim_bytes =
-                            if save_ui.save_include_climate && !climate.temperatures.is_empty() {
-                                bincode::serialize(&*climate).ok()
-                            } else {
-                                None
-                            };
-                        let hydro_bytes =
-                            if save_ui.save_include_hydrology && !hydrology.biomes.is_empty() {
-                                bincode::serialize(&*hydrology).ok()
-                            } else {
-                                None
-                            };
-
-                        let save_data = PlanetSaveFile {
-                            version: PLANET_FILE_VERSION,
-                            radius: world_config.radius,
-                            subdivisions: topology.subdivisions,
-                            seed: world_config.seed,
-                            geology_bytes: geo_bytes,
-                            climate_bytes: clim_bytes,
-                            hydrology_bytes: hydro_bytes,
-                        };
-
-                        match bincode::serialize(&save_data)
-                            .map_err(|e| e.to_string())
-                            .and_then(|bytes| fs::write(&path, bytes).map_err(|e| e.to_string()))
-                        {
-                            Ok(()) => {
-                                save_ui.refresh_lists();
-                                save_ui
-                                    .set_ok(format!("Планета «{}» успешно сохранена", clean_name));
-                            }
-                            Err(err) => {
-                                save_ui.set_err(format!("Ошибка сохранения планеты: {}", err));
-                            }
-                        }
+                        save_ui.pending_request = Some(SaveLoadRequest::SavePlanet {
+                            name: save_ui.planet_save_name.clone(),
+                            include_climate: save_ui.save_include_climate,
+                            include_hydrology: save_ui.save_include_hydrology,
+                        });
                     }
                 });
                 if !has_planet {
@@ -289,7 +797,8 @@ pub fn draw_save_load_windows_system(
                 ui.horizontal(|ui| {
                     ui.heading("Доступные планеты");
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("🔄 Обновить").clicked() {
+                        if ui.add_enabled(!is_busy, egui::Button::new("🔄 Обновить")).clicked()
+                        {
                             save_ui.refresh_lists();
                         }
                     });
@@ -316,26 +825,23 @@ pub fn draw_save_load_windows_system(
                                     ui.with_layout(
                                         egui::Layout::right_to_left(egui::Align::Center),
                                         |ui| {
-                                            if ui.button("🗑").on_hover_text("Удалить").clicked()
-                                            {
-                                                let _ = fs::remove_file(&entry.path);
-                                                save_ui.refresh_lists();
-                                            }
-                                            if ui.button("📂 Загрузить").clicked() {
-                                                load_planet_from_path(
-                                                    &entry.path,
-                                                    &entry.name,
-                                                    &mut save_ui,
-                                                    &mut world_config,
-                                                    &mut topology,
-                                                    &mut geology,
-                                                    &mut climate,
-                                                    &mut hydrology,
-                                                    &mut pipeline,
-                                                    &mut gen_req,
-                                                    &mut next_state,
-                                                );
-                                            }
+                                            ui.add_enabled_ui(!is_busy, |ui| {
+                                                if ui
+                                                    .button("🗑")
+                                                    .on_hover_text("Удалить")
+                                                    .clicked()
+                                                {
+                                                    let _ = fs::remove_file(&entry.path);
+                                                    save_ui.refresh_lists();
+                                                }
+                                                if ui.button("📂 Загрузить").clicked() {
+                                                    save_ui.pending_request =
+                                                        Some(SaveLoadRequest::LoadPlanet {
+                                                            name: entry.name.clone(),
+                                                            path: entry.path.clone(),
+                                                        });
+                                                }
+                                            });
                                         },
                                     );
                                 });
@@ -516,177 +1022,5 @@ pub fn draw_save_load_windows_system(
                     }
                 });
             });
-    }
-}
-
-/// Умный загрузчик планеты: проверяет сетку, поочередно распаковывает слои
-/// и при нехватке любого этапа инициирует/предлагает догенерацию ровно с него.
-#[allow(clippy::too_many_arguments)]
-fn load_planet_from_path(
-    path: &Path,
-    planet_name: &str,
-    save_ui: &mut SaveUiState,
-    world_config: &mut WorldConfig,
-    topology: &mut WorldTopology,
-    geology: &mut GeologyLayer,
-    climate: &mut ClimateLayer,
-    hydrology: &mut HydrologyLayer,
-    pipeline: &mut WorldPipeline,
-    gen_req: &mut GenerationRequest,
-    next_state: &mut NextState<AppState>,
-) {
-    let bytes = match fs::read(path) {
-        Ok(b) => b,
-        Err(e) => {
-            save_ui.set_err(format!("Не удалось прочитать файл: {}", e));
-            return;
-        }
-    };
-
-    let save_file: PlanetSaveFile = match bincode::deserialize(&bytes) {
-        Ok(s) => s,
-        Err(e) => {
-            save_ui.set_err(format!("Поврежденный заголовок сохранения: {}", e));
-            return;
-        }
-    };
-
-    // 1. Синхронизируем топологию сферы, если планета была сохранена с другим subdivisions
-    world_config.radius = save_file.radius;
-    world_config.seed = save_file.seed;
-    if topology.subdivisions != save_file.subdivisions {
-        info!(
-            "Перестроение топологии сетки под сохранение: subdivisions {} -> {}",
-            topology.subdivisions, save_file.subdivisions
-        );
-        *topology = WorldTopology::new(save_file.subdivisions);
-    }
-    let num_cells = topology.cells.len();
-
-    let mut missing_stage: Option<(PipelineStage, String)> = None;
-
-    // 2. Пытаемся загрузить Тектонику (GeologyLayer)
-    match save_file
-        .geology_bytes
-        .as_deref()
-        .map(bincode::deserialize::<GeologyLayer>)
-    {
-        Some(Ok(loaded_geo)) if loaded_geo.elevations.len() == num_cells => {
-            *geology = loaded_geo;
-        }
-        Some(Ok(_)) => {
-            geology.resize(num_cells);
-            missing_stage = Some((
-                PipelineStage::Tectonics,
-                "размер сетки рельефа не совпал с топологией".to_string(),
-            ));
-        }
-        Some(Err(_)) => {
-            geology.resize(num_cells);
-            missing_stage = Some((
-                PipelineStage::Tectonics,
-                "формат слоя тектоники устарел".to_string(),
-            ));
-        }
-        None => {
-            geology.resize(num_cells);
-            missing_stage = Some((
-                PipelineStage::Tectonics,
-                "отсутствует слой тектоники".to_string(),
-            ));
-        }
-    }
-
-    // 3. Пытаемся загрузить Климат (ClimateLayer), если Тектоника успешна
-    if missing_stage.is_none() {
-        match save_file
-            .climate_bytes
-            .as_deref()
-            .map(bincode::deserialize::<ClimateLayer>)
-        {
-            Some(Ok(loaded_clim)) if loaded_clim.temperatures.len() == num_cells => {
-                *climate = loaded_clim;
-            }
-            Some(Ok(_)) | Some(Err(_)) => {
-                *climate = ClimateLayer::default();
-                climate.resize(num_cells);
-                missing_stage = Some((
-                    PipelineStage::Climate,
-                    "данные климата устарели или не совпадают по сетке".to_string(),
-                ));
-            }
-            None => {
-                *climate = ClimateLayer::default();
-                climate.resize(num_cells);
-                missing_stage = Some((
-                    PipelineStage::Climate,
-                    "отсутствует этап климата".to_string(),
-                ));
-            }
-        }
-    } else {
-        *climate = ClimateLayer::default();
-        climate.resize(num_cells);
-    }
-
-    // 4. Пытаемся загрузить Гидрологию (HydrologyLayer), если Тектоника и Климат успешны
-    if missing_stage.is_none() {
-        match save_file
-            .hydrology_bytes
-            .as_deref()
-            .map(bincode::deserialize::<HydrologyLayer>)
-        {
-            Some(Ok(loaded_hydro)) if loaded_hydro.biomes.len() == num_cells => {
-                *hydrology = loaded_hydro;
-            }
-            Some(Ok(_)) | Some(Err(_)) => {
-                *hydrology = HydrologyLayer::default();
-                hydrology.resize(num_cells);
-                missing_stage = Some((
-                    PipelineStage::Hydrology,
-                    "данные гидрологии и биомов устарели".to_string(),
-                ));
-            }
-            None => {
-                *hydrology = HydrologyLayer::default();
-                hydrology.resize(num_cells);
-                missing_stage = Some((
-                    PipelineStage::Hydrology,
-                    "отсутствует этап гидрологии и биомов".to_string(),
-                ));
-            }
-        }
-    } else {
-        *hydrology = HydrologyLayer::default();
-        hydrology.resize(num_cells);
-    }
-
-    // Перестраиваем 3D-глобус и переходим в InGame
-    pipeline.rebuild_mesh = true;
-    pipeline.rebuild_rivers = true;
-    next_state.set(AppState::InGame);
-    save_ui.planet_save_name = planet_name.to_string();
-
-    // 5. Если какого-то этапа не хватило — либо сразу догенерируем, либо спрашиваем пользователя
-    if let Some((stage, reason)) = missing_stage {
-        if save_ui.auto_regenerate_missing {
-            save_ui.set_ok(format!(
-                "Загружена «{}» ({}). Запущена авто-догенерация...",
-                planet_name, reason
-            ));
-            gen_req.request(stage);
-        } else {
-            save_ui.set_ok(format!(
-                "Планета «{}» загружена частично ({})",
-                planet_name, reason
-            ));
-            save_ui.pending_prompt = Some(MissingStagePrompt {
-                planet_name: planet_name.to_string(),
-                missing_from: stage,
-                reason,
-            });
-        }
-    } else {
-        save_ui.set_ok(format!("Планета «{}» полностью загружена!", planet_name));
     }
 }
