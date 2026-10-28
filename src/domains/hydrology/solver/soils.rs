@@ -1,5 +1,6 @@
 // src/domains/hydrology/solver/soils.rs
 
+use super::SurfaceNoise;
 use crate::{
     domains::{
         climate::climate_data::ClimateLayer,
@@ -18,6 +19,7 @@ pub(super) fn compute_soils(
     climate: &ClimateLayer,
     hydrology: &mut HydrologyLayer,
     config: &HydrologyConfig,
+    noise: &SurfaceNoise,
 ) {
     let num_cells = topology.cells.len();
 
@@ -50,6 +52,13 @@ pub(super) fn compute_soils(
         let pet = ((mean_temp + 10.0).max(2.0) * 0.022 * config.aridity_evap_scale).max(0.05);
         let moisture_index = annual_precip / pet;
 
+        // Когерентные возмущения для неровных природных границ почвенных поясов
+        let t_jit = noise.temp_jitter[i] * 1.4;
+        let m_jit = noise.moisture_jitter[i];
+        let eff_mean_temp = mean_temp + t_jit;
+        let eff_warm_temp = warm_season_temp + t_jit * 0.8;
+        let eff_moisture_index = (moisture_index * (1.0 + m_jit * 0.14)).max(0.0);
+
         // 2. Рельеф: максимальный уклон и локальная вогнутость (низина vs хребет)
         let neighbors = &topology.cells[i].neighbors;
         let mut max_slope = 0.0_f32;
@@ -77,25 +86,27 @@ pub(super) fn compute_soils(
 
         // 4. Модификация текстуры климатом и рельефом (CLORPT)
         // Химическое выветривание (жара + влага переводят песок и ил во вторичные глины)
-        let heat_factor = ((mean_temp - 5.0) / 25.0).clamp(0.0, 1.2);
-        let wet_factor = (moisture_index * 0.6).clamp(0.0, 1.2);
+        let heat_factor = ((eff_mean_temp - 5.0) / 25.0).clamp(0.0, 1.2);
+        let wet_factor = (eff_moisture_index * 0.6).clamp(0.0, 1.2);
         let chem_weathering = heat_factor * wet_factor * config.chemical_weathering_rate;
 
         // Физическое морозное выветривание (холод дробит породу в пылеватый ил и песок)
-        let frost_weathering = ((5.0 - mean_temp) / 25.0).clamp(0.0, 0.45);
+        let frost_weathering = ((5.0 - eff_mean_temp) / 25.0).clamp(0.0, 0.45);
 
         // Смыв мелких фракций со склонов и аккумуляция в ложбинах
         let slope_wash = (max_slope * config.slope_erosion_sensitivity).clamp(0.0, 0.75);
         let basin_deposition = (valley_concavity * 12.0).clamp(0.0, 0.35);
 
-        sand =
-            (sand - chem_weathering * 0.35 + slope_wash * 0.45 + frost_weathering * 0.10).max(0.05);
+        sand = (sand - chem_weathering * 0.35 + slope_wash * 0.45 + frost_weathering * 0.10
+            - m_jit * 0.03)
+            .max(0.05);
         silt = (silt + frost_weathering * 0.25 + basin_deposition * 0.20
             - chem_weathering * 0.15
             - slope_wash * 0.20)
             .max(0.05);
-        clay =
-            (clay + chem_weathering * 0.50 + basin_deposition * 0.25 - slope_wash * 0.25).max(0.05);
+        clay = (clay + chem_weathering * 0.50 + basin_deposition * 0.25 - slope_wash * 0.25
+            + m_jit * 0.03)
+            .max(0.05);
 
         let tex_sum = sand + silt + clay;
         sand /= tex_sum;
@@ -112,7 +123,8 @@ pub(super) fn compute_soils(
         hydrology.soil_depth[i] = depth;
 
         // 6. Педотрансферные функции: Влагоемкость (WHC) и Водопроницаемость
-        let is_permafrost = mean_temp < config.permafrost_temp_threshold || warm_season_temp < 3.0;
+        let is_permafrost =
+            eff_mean_temp < config.permafrost_temp_threshold || eff_warm_temp < 3.0;
 
         // Ил и суглинки лучше всего удерживают доступную растениям воду; вулканический пепел (Andisol) повышает WHC
         let volcanic_bonus = if geology.volcano_mask[i] || rock == RockType::Andesite {
@@ -133,9 +145,9 @@ pub(super) fn compute_soils(
 
         // 7. Итоговая классификация почвенного типа (SoilType)
         hydrology.soils[i] = classify_soil_type(
-            mean_temp,
-            warm_season_temp,
-            moisture_index,
+            eff_mean_temp,
+            eff_warm_temp,
+            eff_moisture_index,
             max_slope,
             elev,
             depth,

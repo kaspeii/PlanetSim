@@ -2,6 +2,7 @@
 
 use std::{cmp::Ordering, collections::BinaryHeap, f32::consts::PI};
 
+use super::SurfaceNoise;
 use crate::{
     domains::{
         climate::climate_data::ClimateLayer,
@@ -44,6 +45,7 @@ pub(super) fn compute_rivers(
     climate: &ClimateLayer,
     hydrology: &mut HydrologyLayer,
     config: &HydrologyConfig,
+    noise: &SurfaceNoise,
 ) {
     let num_cells = topology.cells.len();
     if num_cells == 0 {
@@ -53,16 +55,31 @@ pub(super) fn compute_rivers(
     // Физическая площадь одной ячейки на единичной сфере (обеспечивает масштабонезависимость)
     let cell_area = 4.0 * PI / (num_cells as f32);
 
+    // Предрасчет локального смещения меандрирования: работает только на пологих равнинах,
+    // не искажая горные хребты и береговую линию
+    let mut meander_bias = vec![0.0_f32; num_cells];
+
     // =========================================================================
     // 1. РАСЧЕТ ПОЛЯ СТОКА (Runoff = Осадки - Эвапотранспирация Будыко + Таяние снега)
     // =========================================================================
     for i in 0..num_cells {
-        if geology.elevations[i] <= 0.0 {
+        let elev = geology.elevations[i];
+        if elev <= 0.0 {
             hydrology.runoff[i] = 0.0;
             hydrology.flow_dir[i] = None;
             hydrology.flow_accumulation[i] = 0.0;
             continue;
         }
+
+        let mut max_slope = 0.0_f32;
+        for &n_id in &topology.cells[i].neighbors {
+            let diff = (elev - geology.elevations[n_id]).abs();
+            if diff > max_slope {
+                max_slope = diff;
+            }
+        }
+        let flat_factor = (1.0 - max_slope / 0.018).clamp(0.0, 1.0);
+        meander_bias[i] = noise.meander_field[i] * 0.0075 * flat_factor;
 
         let t_spring = climate.spring.temperatures[i];
         let t_summer = climate.summer.temperatures[i];
@@ -105,7 +122,7 @@ pub(super) fn compute_rivers(
     }
 
     // =========================================================================
-    // 2. ТРАССИРОВКА НАПРАВЛЕНИЙ СТОКА (Priority-Flood + Эродируемость пород)
+    // 2. ТРАССИРОВКА НАПРАВЛЕНИЙ СТОКА (Priority-Flood + Эродируемость + Меандры)
     // =========================================================================
     let mut visited = vec![false; num_cells];
     let mut filled_elev = vec![0.0_f32; num_cells];
@@ -126,14 +143,13 @@ pub(super) fn compute_rivers(
     }
 
     // Обходим планету от береговой линии вверх к водоразделам:
-    // мягкие породы (ShaleClay, Sandstone) имеют меньшее эффективное сопротивление,
-    // поэтому реки естественно стремятся течь по осадочным долинам, огибая гранитные массивы.
+    // мягкие породы и отрицательные фазы meander_bias притягивают русла рек на равнинах.
     while let Some(FloodNode { cell_id: u, .. }) = heap.pop() {
         if geology.elevations[u] > 0.0 {
             downstream_order.push(u);
 
             // Если клетка не в замкнутой яме, уточняем направление по самому крутому уклону
-            // среди уже открытых более низких соседей (убирает сеточную угловатость BFS)
+            // среди уже открытых более низких соседей (с учетом пород и меандрирования)
             let my_filled = filled_elev[u];
             let neighbors = &topology.cells[u].neighbors;
             let mut best_k = hydrology.flow_dir[u];
@@ -143,7 +159,8 @@ pub(super) fn compute_rivers(
                 if visited[n_id] && filled_elev[n_id] < my_filled {
                     let rock_bonus =
                         geology.lithology[n_id].erodibility() * config.lithology_erosion_bias;
-                    let drop = (my_filled - filled_elev[n_id]) + rock_bonus;
+                    let meander_pull = -meander_bias[n_id];
+                    let drop = (my_filled - filled_elev[n_id]) + rock_bonus + meander_pull;
                     if drop > max_drop {
                         max_drop = drop;
                         best_k = Some(k as u8);
@@ -166,10 +183,10 @@ pub(super) fn compute_rivers(
                     .unwrap_or(0) as u8;
                 hydrology.flow_dir[v] = Some(k_back);
 
-                // Эффективная высота с учетом податливости породы размыву
+                // Эффективная высота с учетом податливости породы размыву и меандров на равнине
                 let erod_offset =
                     geology.lithology[v].erodibility() * config.lithology_erosion_bias;
-                let raw_v_elev = geology.elevations[v] - erod_offset;
+                let raw_v_elev = geology.elevations[v] - erod_offset + meander_bias[v];
                 let v_filled = raw_v_elev.max(u_filled + 1e-5);
                 filled_elev[v] = v_filled;
 
@@ -229,8 +246,6 @@ pub(super) fn compute_rivers(
         let [sand, _silt, clay] = hydrology.soil_texture[i];
         let pet = ((mean_temp + 10.0).max(1.5) * 0.013 * config.aridity_evap_scale).max(0.025);
 
-        // Способность почвы удерживать дождевую влагу между дождями:
-        // суглинки и глины (высокий WHC) держат воду, чистые пески и карст теряют быстрее
         let retention_mod = 1.0 + (whc - 0.30) * config.soil_biome_influence
             - (sand - 0.45).max(0.0) * 0.35 * config.soil_biome_influence;
         let effective_infiltration = (annual_precip * retention_mod.clamp(0.5, 1.50))
@@ -259,11 +274,9 @@ pub(super) fn compute_rivers(
 
             if n_elev > 0.0 {
                 let n_flow_ratio = (hydrology.flow_accumulation[n_id] / threshold).max(0.0);
-                // Если в соседней клетке течет река, а наша клетка не возвышается над ней крутым обрывом:
                 let height_above_river = (elev - n_elev).max(0.0);
                 if n_flow_ratio >= 0.8 && height_above_river < 0.022 {
                     let elev_atten = 1.0 - (height_above_river / 0.022);
-                    // Песчаные и аллювиальные берега лучше проводят грунтовые воды в пойму
                     let perm_factor = 0.45 + 0.55 * hydrology.permeability[i];
                     let seep = 0.14
                         * n_flow_ratio.powf(0.38)
@@ -282,7 +295,6 @@ pub(super) fn compute_rivers(
             0.0
         };
 
-        // Итоговая влажность почвы: объединяет дождевое питание и грунтово-речное питание
         let total_sm = (rain_soil_moisture
             + direct_river_moisture * (1.0 - rain_soil_moisture * 0.55)
             + valley_seepage * (1.0 - rain_soil_moisture * 0.65)
@@ -291,7 +303,6 @@ pub(super) fn compute_rivers(
 
         hydrology.soil_moisture[i] = total_sm;
 
-        // Если река или низина сильно насытили почву водой — формируются пойменные/глеевые почвы (Gleysol)
         if total_sm > 0.72
             && elev < 0.15
             && max_slope < 0.012

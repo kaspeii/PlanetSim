@@ -35,6 +35,7 @@ pub struct PlanetSaveFile {
     pub version: u32,
     pub radius: f32,
     pub subdivisions: u32,
+    pub seed: u32,
     pub geology_bytes: Option<Vec<u8>>,
     pub climate_bytes: Option<Vec<u8>>,
     pub hydrology_bytes: Option<Vec<u8>>,
@@ -257,6 +258,7 @@ pub fn draw_save_load_windows_system(
                             version: PLANET_FILE_VERSION,
                             radius: world_config.radius,
                             subdivisions: topology.subdivisions,
+                            seed: world_config.seed,
                             geology_bytes: geo_bytes,
                             climate_bytes: clim_bytes,
                             hydrology_bytes: hydro_bytes,
@@ -551,6 +553,7 @@ fn load_planet_from_path(
 
     // 1. Синхронизируем топологию сферы, если планета была сохранена с другим subdivisions
     world_config.radius = save_file.radius;
+    world_config.seed = save_file.seed;
     if topology.subdivisions != save_file.subdivisions {
         info!(
             "Перестроение топологии сетки под сохранение: subdivisions {} -> {}",

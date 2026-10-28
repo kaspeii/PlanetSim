@@ -304,7 +304,7 @@ pub fn simulate_tectonics(
     );
 
     // 12. Наложение поверхностных слоев: вулканизм, осадочные бассейны, карбонатные шельфы и абиссальные илы
-    apply_lithology_overlays(topology, geology, &ridge_cells, config);
+    apply_lithology_overlays(topology, geology, &ridge_cells, noise, config);
 }
 
 /// Определяет базовую породу фундамента по 7 типам границ и удалению вглубь плиты
@@ -445,6 +445,7 @@ fn apply_lithology_overlays(
     topology: &WorldTopology,
     geology: &mut GeologyLayer,
     ridge_cells: &[bool],
+    noise: &impl NoiseFn<f64, 3>,
     config: &TectonicsConfig,
 ) {
     let num_cells = topology.cells.len();
@@ -476,14 +477,22 @@ fn apply_lithology_overlays(
             }
         }
 
+        let dir = topology.cells[i].center.as_dvec3();
+        let litho_noise =
+            noise.get([dir.x * 6.5 + 31.7, dir.y * 6.5 - 19.3, dir.z * 6.5 + 47.1]) as f32;
+
         // 2. Морское дно (Ниже уровня океана)
         if elev <= 0.0 {
             // Тёплые мелководные шельфы (тропики и субтропики до ~35° широты) -> Известняки (рифовые/карбонатные банки)
-            if elev > -0.09 && lat_abs < 0.62 && !r && geology.lithology[i] != RockType::Andesite {
+            if elev > -0.09 + litho_noise * 0.015
+                && lat_abs < 0.62 + litho_noise * 0.06
+                && !r
+                && geology.lithology[i] != RockType::Andesite
+            {
                 geology.lithology[i] = RockType::Limestone;
             }
             // Глубокие старые абиссальные равнины вдали от СОХ -> Пелагические осадки
-            else if elev < config.ocean_base_height - 0.05
+            else if elev < config.ocean_base_height - 0.05 + litho_noise * 0.02
                 && !r
                 && geology.lithology[i] == RockType::OceanicBasalt
             {
@@ -497,34 +506,31 @@ fn apply_lithology_overlays(
         if geology.lithology[i] == RockType::PelagicSediment
             || geology.lithology[i] == RockType::OceanicBasalt
         {
-            geology.lithology[i] = if lat_abs < 0.60 && elev < config.cont_base_height * 0.8 {
-                RockType::Limestone
-            } else {
-                RockType::ShaleClay
-            };
+            geology.lithology[i] =
+                if lat_abs < 0.60 + litho_noise * 0.06 && elev < config.cont_base_height * 0.8 {
+                    RockType::Limestone
+                } else {
+                    RockType::ShaleClay
+                };
         }
 
         // Карбонатные платформы на тёплых прибрежных равнинах с малым уклоном
-        if elev < config.cont_base_height * 0.75
+        if elev < config.cont_base_height * 0.78
             && max_slope < 0.018
-            && lat_abs < 0.58
+            && lat_abs < 0.58 + litho_noise * 0.05
             && matches!(
                 geology.lithology[i],
                 RockType::Sandstone | RockType::ShaleClay
             )
+            && litho_noise > 0.12
         {
-            // Чередуем известняковые плато и терригенные осадки по широте/долготе без лишнего шума
-            let dir = topology.cells[i].center;
-            let wave = (dir.x * 11.0).sin() * (dir.z * 11.0).cos();
-            if wave > 0.15 {
-                geology.lithology[i] = RockType::Limestone;
-                continue;
-            }
+            geology.lithology[i] = RockType::Limestone;
+            continue;
         }
 
         // Осадконакопление в плоских низинах и межгорных котловинах
-        if elev < config.cont_base_height * 0.90 && max_slope < 0.014 {
-            if max_slope < 0.006 && elev < config.cont_base_height * 0.55 {
+        if elev < config.cont_base_height * (0.90 + litho_noise * 0.08) && max_slope < 0.014 {
+            if max_slope < 0.006 && elev < config.cont_base_height * (0.55 + litho_noise * 0.08) {
                 // Плоские низменности — глинистые отложения
                 geology.lithology[i] = RockType::ShaleClay;
             } else if matches!(

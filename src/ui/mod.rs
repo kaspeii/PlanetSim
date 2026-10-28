@@ -85,7 +85,7 @@ fn main_menu_ui(
     mut climate: ResMut<ClimateLayer>,
     mut hydrology: ResMut<HydrologyLayer>,
     mut pipeline: ResMut<WorldPipeline>,
-    config: Res<WorldConfig>,
+    mut config: ResMut<WorldConfig>,
 ) -> Result {
     let Ok(mut egui_ctx) = contexts.single_mut() else {
         return Ok(());
@@ -105,12 +105,12 @@ fn main_menu_ui(
                 ui.weak("Настройте конфиги справа или выберите действие:");
                 ui.add_space(16.0);
 
-                let btn_label = format!("🚀 Сгенерировать планету (subdiv {})", target_subdivs);
+                let btn_label = format!("🚀 Новая планета (subdiv {})", target_subdivs);
                 if ui
                     .add_sized([260.0, 44.0], egui::Button::new(btn_label))
                     .clicked()
                 {
-                    // Атомарно: сброс/пересборка + запрос генерации
+                    config.randomize_seed();
                     if topology.subdivisions != target_subdivs {
                         *topology = WorldTopology::new(target_subdivs);
                     }
@@ -311,24 +311,30 @@ fn render_ui_shell(world: &mut World) -> Result {
                         });
 
                         ui.separator();
-                        if ui.button("🚀 Новая планета").clicked() {
+                        if ui
+                            .button("🚀 Новая планета")
+                            .on_hover_text("Сгенерировать новую планету со случайным сидом")
+                            .clicked()
+                        {
                             trigger_new_gen = true;
                         }
 
                         if trigger_new_gen {
-                            world
-                                .resource_mut::<GenerationRequest>()
-                                .request(PipelineStage::Tectonics);
-                            world
-                                .resource_mut::<NextState<AppState>>()
-                                .set(AppState::InGame);
+                            let subdivs = {
+                                let mut cfg = world.resource_mut::<WorldConfig>();
+                                cfg.randomize_seed();
+                                cfg.next_planet_subdivisions
+                            };
+                            start_new_planet(world, subdivs);
                         }
 
                         let subdivs = world.resource::<WorldTopology>().subdivisions;
+                        let seed = world.resource::<WorldConfig>().seed;
                         let has_geo = !world.resource::<GeologyLayer>().elevations.is_empty();
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.weak(format!(
-                                " Детализация: subdiv {} | Статус: {}",
+                                " Сид: {} | subdiv {} | Статус: {}",
+                                seed,
                                 subdivs,
                                 if has_geo {
                                     "Планета активна"
@@ -507,35 +513,82 @@ fn render_ui_shell(world: &mut World) -> Result {
 
                             ui.separator();
 
-                            // --- Секция 3: создание новой планеты ---
-                            ui.heading("Новая планета");
+                            // --- Секция 3: сид и создание новой планеты ---
+                            ui.heading("Параметры генерации");
 
-                            let mut launch_subdivs: Option<u32> = None;
+                            let mut launch_subdivs: Option<(u32, bool)> = None;
                             world.resource_scope(|_world, mut cfg: Mut<WorldConfig>| {
                                 ui.add(
                                     egui::Slider::new(&mut cfg.next_planet_subdivisions, 3..=9)
                                         .integer()
-                                        .text("Детализация новой планеты"),
+                                        .text("Детализация"),
                                 );
 
                                 let est = 10u64 * 4u64.pow(cfg.next_planet_subdivisions) + 2;
                                 ui.weak(format!("≈ {} ячеек", est));
                                 ui.add_space(6.0);
 
+                                ui.horizontal(|ui| {
+                                    ui.label("Сид мира:");
+                                    let mut seed_str = cfg.seed.to_string();
+                                    if ui
+                                        .add(
+                                            egui::TextEdit::singleline(&mut seed_str)
+                                                .desired_width(110.0),
+                                        )
+                                        .changed()
+                                    {
+                                        let digits: String = seed_str
+                                            .chars()
+                                            .filter(|c| c.is_ascii_digit())
+                                            .collect();
+                                        if digits.is_empty() {
+                                            cfg.seed = 0;
+                                        } else if let Ok(parsed) = digits.parse::<u32>() {
+                                            cfg.seed = parsed;
+                                        }
+                                    }
+
+                                    if ui
+                                        .button("🎲 Случайный")
+                                        .on_hover_text("Сгенерировать случайный сид в поле ввода")
+                                        .clicked()
+                                    {
+                                        cfg.randomize_seed();
+                                    }
+                                });
+
+                                ui.add_space(8.0);
+
                                 if ui
                                     .add_sized(
-                                        [ui.available_width(), 36.0],
+                                        [ui.available_width(), 34.0],
                                         egui::Button::new(
-                                            "🚀 Создать новую планету с этими настройками",
+                                            "🔄 Перегенерировать с введённым сидом",
                                         ),
                                     )
                                     .clicked()
                                 {
-                                    launch_subdivs = Some(cfg.next_planet_subdivisions);
+                                    launch_subdivs = Some((cfg.next_planet_subdivisions, false));
+                                }
+
+                                ui.add_space(4.0);
+
+                                if ui
+                                    .add_sized(
+                                        [ui.available_width(), 36.0],
+                                        egui::Button::new("🚀 Новая планета (случайный сид)"),
+                                    )
+                                    .clicked()
+                                {
+                                    launch_subdivs = Some((cfg.next_planet_subdivisions, true));
                                 }
                             });
 
-                            if let Some(subdivs) = launch_subdivs {
+                            if let Some((subdivs, randomize)) = launch_subdivs {
+                                if randomize {
+                                    world.resource_mut::<WorldConfig>().randomize_seed();
+                                }
                                 start_new_planet(world, subdivs);
                             }
                         }

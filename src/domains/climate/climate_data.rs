@@ -66,6 +66,11 @@ pub struct ClimateLayer {
     pub wind_arrows_cache: Vec<(usize, f32)>,
     pub current_arrows_cache: Vec<(usize, f32)>,
 
+    /// Теплоёмкость подстилающей поверхности [0..1].
+    /// 1.0 — открытая вода (макс. инерция), 0.1 — скалы/сухая пустыня.
+    /// Заполняется hydrology-solver'ом в apply_surface_feedback_to_climate.
+    pub surface_heat_capacity: Vec<f32>,
+
     // Предрассчитанные снимки трех сезонов для биомов, рек и мгновенного переключения в UI
     pub spring: SeasonalSnapshot,
     pub summer: SeasonalSnapshot,
@@ -87,6 +92,8 @@ impl ClimateLayer {
         self.winds.resize(num_cells, Vec2::ZERO);
         self.winds_3d.resize(num_cells, Vec3::ZERO);
         self.ocean_currents.resize(num_cells, Vec3::ZERO);
+
+        self.surface_heat_capacity.resize(num_cells, 0.35); // дефолт суши
 
         self.spring.resize(num_cells);
         self.summer.resize(num_cells);

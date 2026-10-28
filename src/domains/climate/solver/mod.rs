@@ -1,6 +1,7 @@
 // src/domains/climate/solver/mod.rs
 
 use bevy::math::Vec3;
+use noise::{Fbm, NoiseFn, Perlin};
 use rayon::prelude::*;
 
 mod circulation;
@@ -43,7 +44,7 @@ pub(super) struct SolverPrecalc {
     pub moderation: Vec<f32>,
     pub bathymetry_shift: Vec<f32>,
 
-    // --- NEW: предвычисленные повороты (Rodrigues) ---
+    // --- Предвычисленные повороты (Rodrigues) ---
     /// cos(-sin_lat * coriolis_strength)
     pub coriolis_cos: Vec<f32>,
     /// sin(-sin_lat * coriolis_strength)
@@ -53,7 +54,12 @@ pub(super) struct SolverPrecalc {
     /// sin(-sin_lat * 0.75)
     pub ekman_sin: Vec<f32>,
 
-    // --- NEW: плоские касательные направления к соседям ---
+    // --- Когерентный 3D-шум синоптических волн (от seed мира) ---
+    pub synoptic_noise_a: Vec<f32>,
+    pub synoptic_noise_b: Vec<f32>,
+    pub pressure_wave_noise: Vec<f32>,
+
+    // --- Плоские касательные направления к соседям ---
     /// Для каждой пары (клетка, сосед) — единичный вектор в касательной плоскости.
     /// Уложены подряд, разбиение по клеткам — через neighbor_offsets.
     pub tangent_dirs_flat: Vec<Vec3>,
@@ -68,6 +74,7 @@ impl SolverPrecalc {
         geology: &GeologyLayer,
         continentality: &[f32],
         config: &ClimateConfig,
+        seed: u32,
     ) -> Self {
         let num_cells = topology.cells.len();
         let avg_hex_rad = (4.0 * std::f32::consts::PI / num_cells as f32).sqrt();
@@ -75,6 +82,8 @@ impl SolverPrecalc {
         // поэтому средняя температура поверхности смещена к экватору (~0.68 вместо 0.50)
         let global_avg = config.pole_temp + (config.equator_temp - config.pole_temp) * 0.68;
         let r = config.marginal_sea_moderation_reduction;
+
+        let synoptic_perlin = Fbm::<Perlin>::new(seed.wrapping_add(0x9E37_79B9));
 
         let mut sin_lat = Vec::with_capacity(num_cells);
         let mut cos_lat = Vec::with_capacity(num_cells);
@@ -90,6 +99,10 @@ impl SolverPrecalc {
         let mut coriolis_sin = Vec::with_capacity(num_cells);
         let mut ekman_cos = Vec::with_capacity(num_cells);
         let mut ekman_sin = Vec::with_capacity(num_cells);
+
+        let mut synoptic_noise_a = Vec::with_capacity(num_cells);
+        let mut synoptic_noise_b = Vec::with_capacity(num_cells);
+        let mut pressure_wave_noise = Vec::with_capacity(num_cells);
 
         let mut tangent_dirs_flat = Vec::new();
         let mut neighbor_offsets = Vec::with_capacity(num_cells + 1);
@@ -138,10 +151,6 @@ impl SolverPrecalc {
             };
             bathymetry_shift.push(b_shift);
 
-            // В слое Экмана угол отклонения ветра растет по арктангенсу tan(α) = f / k_f:
-            // уже к 10°–15° широты пассаты поворачивают на 30°–42° на запад, а в средних широтах
-            // угол плавно выходит на плато (~62° над гладким океаном и ~46° над шероховатой сушей,
-            // чтобы над материками ветер втекал по спирали внутрь циклонов, а не дул мимо берегов).
             let friction_k = if elev <= 0.0 { 3.6 } else { 2.4 };
             let max_cor_rad = if elev <= 0.0 { 1.12 } else { 0.85 };
             let cor_ang = (-(s_lat * friction_k * config.coriolis_strength).atan()
@@ -155,6 +164,17 @@ impl SolverPrecalc {
             let (se, ce) = ek_ang.sin_cos();
             ekman_cos.push(ce);
             ekman_sin.push(se);
+
+            // Предрасчет синоптических волн в атмосфере
+            let p = pos.as_dvec3() * 4.5;
+            synoptic_noise_a
+                .push(synoptic_perlin.get([p.x + 13.5, p.y + 27.1, p.z + 41.9]) as f32);
+            synoptic_noise_b
+                .push(synoptic_perlin.get([p.x - 53.2, p.y + 18.4, p.z - 29.7]) as f32);
+            pressure_wave_noise.push(
+                synoptic_perlin.get([p.x * 0.65 + 71.0, p.y * 0.65 - 33.0, p.z * 0.65 + 12.0])
+                    as f32,
+            );
 
             for &n_id in &cell.neighbors {
                 let raw = topology.cells[n_id].center - pos;
@@ -178,6 +198,9 @@ impl SolverPrecalc {
             coriolis_sin,
             ekman_cos,
             ekman_sin,
+            synoptic_noise_a,
+            synoptic_noise_b,
+            pressure_wave_noise,
             tangent_dirs_flat,
             neighbor_offsets,
         }
@@ -196,7 +219,7 @@ pub(super) struct SeasonScratch {
     pub prev_pressure: Vec<f32>,
     pub prev_currents: Vec<Vec3>,
 
-    // --- NEW: постоянное на сезон поле широтных поясов давления ---
+    // --- Постоянное на сезон поле широтных поясов давления ---
     pub latitudinal_pressure: Vec<f32>,
 
     // --- Буферы переноса влаги и осадков ---
@@ -228,24 +251,25 @@ impl SeasonScratch {
 }
 
 /// Главная функция: считает континентальность 1 раз, затем параллельно 3 сезона.
-/// Главная функция: считает континентальность 1 раз, затем параллельно 3 сезона.
 pub fn simulate_all_seasons(
     topology: &WorldTopology,
     geology: &GeologyLayer,
     climate: &mut ClimateLayer,
     config: &ClimateConfig,
+    seed: u32,
     logger: &GenerationLogger,
 ) {
     logger.start_step("Климат: расчет континентальности и геометрии сетки...");
     compute_continentality(topology, geology, climate, config);
 
-    let precalc = SolverPrecalc::new(topology, geology, &climate.continentality, config);
+    let precalc = SolverPrecalc::new(topology, geology, &climate.continentality, config, seed);
 
     // Деструктуризация для disjoint-заимствований (continentality — immut, snapshots — mut).
     let ClimateLayer {
         continentality,
         surface_albedo,
         surface_wetness,
+        surface_heat_capacity,
         spring,
         summer,
         winter,
@@ -255,22 +279,23 @@ pub fn simulate_all_seasons(
     let cont: &[f32] = continentality;
     let surf_alb: &[f32] = surface_albedo;
     let surf_wet: &[f32] = surface_wetness;
+    let surf_hc: &[f32] = surface_heat_capacity;
 
     logger.start_step("Климат: симуляция 3 сезонов (Весна, Лето, Зима)...");
     rayon::scope(|s| {
         s.spawn(|_| {
             simulate_single_season(
-                0.0, topology, geology, cont, surf_alb, surf_wet, config, &precalc, spring,
+                0.0, topology, geology, cont, surf_alb, surf_wet, surf_hc, config, &precalc, spring,
             );
         });
         s.spawn(|_| {
             simulate_single_season(
-                1.0, topology, geology, cont, surf_alb, surf_wet, config, &precalc, summer,
+                1.0, topology, geology, cont, surf_alb, surf_wet, surf_hc, config, &precalc, summer,
             );
         });
         s.spawn(|_| {
             simulate_single_season(
-                -1.0, topology, geology, cont, surf_alb, surf_wet, config, &precalc, winter,
+                -1.0, topology, geology, cont, surf_alb, surf_wet, surf_hc, config, &precalc, winter,
             );
         });
     });
@@ -298,6 +323,7 @@ fn simulate_single_season(
     continentality: &[f32],
     surface_albedo: &[f32],
     surface_wetness: &[f32],
+    surface_heat_capacity: &[f32],
     config: &ClimateConfig,
     precalc: &SolverPrecalc,
     snap: &mut SeasonalSnapshot,
@@ -326,22 +352,25 @@ fn simulate_single_season(
         snap.temperatures[i] = rad_sea_temp - precalc.mountain_cooling[i];
     }
 
-    // --- 2. Широтные пояса давления (постоянны весь сезон) ---
+    // --- 2. Широтные пояса давления (постоянны весь сезон, с 3D-волнами Россби от сида) ---
     for (i, c) in continentality.iter().enumerate().take(num_cells) {
         let lat = topology.cells[i].lat_lon.x;
         let lon = topology.cells[i].lat_lon.y;
-        let belt_lat = lat - sun_lat * 0.55;
+        let belt_lat = lat - sun_lat * 0.55 + precalc.pressure_wave_noise[i] * 0.045;
 
         let polar_damping = 0.5 + 0.5 * precalc.cos_lat[i];
         let base_belt = -(6.0 * belt_lat).cos() * polar_damping;
 
+        let sin_2lat_abs = (2.0 * precalc.sin_lat[i] * precalc.cos_lat[i]).abs();
+        let noise_rossby = precalc.pressure_wave_noise[i] * 0.25 * sin_2lat_abs;
+
         let belt_envelope = if *c < 0.0 {
             let ocean_core = smoothstep(-c);
-            let sin_2lat_abs = (2.0 * precalc.sin_lat[i] * precalc.cos_lat[i]).abs();
-            let rossby_wave = 1.0 + 0.35 * (3.0 * lon + belt_lat * 2.0).cos() * sin_2lat_abs;
+            let rossby_wave =
+                1.0 + (0.30 * (3.0 * lon + belt_lat * 2.0).cos() * sin_2lat_abs) + noise_rossby;
             (0.55 + 0.85 * ocean_core) * rossby_wave
         } else {
-            1.0 - 0.15 * smoothstep(*c)
+            (1.0 - 0.15 * smoothstep(*c)) * (1.0 + noise_rossby * 0.5)
         };
 
         scratch.latitudinal_pressure[i] =
@@ -373,6 +402,7 @@ fn simulate_single_season(
     for _ in 0..iterations {
         // А) Давление и ветра
         compute_season_pressure_and_winds(
+            season_mult,
             topology,
             geology,
             continentality,
@@ -551,7 +581,22 @@ fn simulate_single_season(
                     rad_temp * (1.0 - air_blend) + scratch.advected_temps[i] * air_blend;
             }
 
-            let final_temp = scratch.sea_level_temps[i] - precalc.mountain_cooling[i];
+            let mut final_temp = scratch.sea_level_temps[i] - precalc.mountain_cooling[i];
+
+            // Теплоёмкость сглаживает сезонный размах только на СУШЕ.
+            // Океан уже сглажен через ocean_advection_rate (иначе двойной учёт).
+            if elev > 0.0 {
+                let hc = surface_heat_capacity[i].clamp(0.0, 1.0);
+                if hc > 0.01 {
+                    // Осреднённая по сезонам температура (равноденственная инсоляция):
+                    let annual_mean = config.pole_temp
+                        + (config.equator_temp - config.pole_temp) * precalc.cos_lat[i] * 0.82;
+                    let damping = (1.0 - hc * 0.55).max(0.35);
+                    final_temp = annual_mean + (final_temp - annual_mean) * damping;
+                    scratch.sea_level_temps[i] = final_temp + precalc.mountain_cooling[i];
+                }
+            }
+
             snap.temperatures[i] = final_temp;
             snap.albedo[i] = calc_albedo(final_temp, elev, surface_albedo[i], config);
         }
@@ -559,6 +604,7 @@ fn simulate_single_season(
 
     // Финальная синхронизация давления, ветров и течений
     compute_season_pressure_and_winds(
+        season_mult,
         topology,
         geology,
         continentality,

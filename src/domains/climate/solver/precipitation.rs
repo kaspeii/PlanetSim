@@ -126,7 +126,7 @@ pub(super) fn compute_season_precipitation(
                 0.75
             } else {
                 let eff_wet = surface_wetness[i].max(0.20);
-                0.90 + 0.45 * eff_wet * recycling
+                0.75 + 0.55 * eff_wet * recycling
             };
 
             let syn_clouds = avail_water * rh_factor * dynamic_lift * 1.30 * surface_factor;

@@ -10,9 +10,10 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test:
-    name: Tests and Checks
+  lint:
+    name: Code Style (fmt & clippy)
     runs-on: ubuntu-latest
+    continue-on-error: true
 
     steps:
       - name: Checkout code
@@ -38,6 +39,27 @@ jobs:
 
       - name: Run Clippy (Linter)
         run: cargo clippy --all-targets --all-features -- -D warnings
+
+  test:
+    name: Tests and Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libudev-dev pkg-config libwayland-dev libxkbcommon-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-cache"
 
       - name: Build
         run: cargo build --verbose

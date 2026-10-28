@@ -15,6 +15,7 @@ fn rodrigues(axis: Vec3, v: Vec3, cos_a: f32, sin_a: f32) -> Vec3 {
 }
 
 pub(super) fn compute_season_pressure_and_winds(
+    season_mult:f32,
     topology: &WorldTopology,
     geology: &GeologyLayer,
     continentality: &[f32],
@@ -121,6 +122,14 @@ pub(super) fn compute_season_pressure_and_winds(
             precalc.coriolis_cos[i],
             precalc.coriolis_sin[i],
         );
+
+        // Синоптические волны в струях ветра (сильнее в циклонах my_p < 0 и умеренных широтах)
+        let cyclone_instability = (0.45 - my_p * 0.55).clamp(0.15, 1.25);
+        let seasonal_wave = precalc.synoptic_noise_a[i] * (1.0 - 0.35 * season_mult.abs())
+            + precalc.synoptic_noise_b[i] * (0.60 * season_mult);
+        let wave_angle = seasonal_wave * 0.32 * cyclone_instability;
+        let (w_sin, w_cos) = wave_angle.sin_cos();
+        wind_3d = rodrigues(pos, wind_3d, w_cos, w_sin);
 
         // Орографический барьер
         let mut mountain_drag = 0.0;
