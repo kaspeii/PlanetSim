@@ -1,7 +1,45 @@
-use super::{config::TectonicsConfig, data::GeologyLayer, data::PlateType};
-use crate::world::pipeline::WorldPipeline;
+// src/domains/tectonics/tectonics_palettes.rs
+
+use super::tectonics_data::{GeologyLayer, PlateType, RockType};
+use bevy::color::{Color, ColorToComponents};
 use bevy::prelude::*;
-use bevy_egui::egui;
+
+pub fn build_lithology_colors(geology: &GeologyLayer) -> Vec<[f32; 4]> {
+    geology
+        .lithology
+        .iter()
+        .enumerate()
+        .map(|(i, &rock)| {
+            let elev = geology.elevations[i];
+            let base_rgb = match rock {
+                // Магматические и метаморфические
+                RockType::Granite => [0.92, 0.48, 0.58], // Розово-коралловый (гранитные батолиты)
+                RockType::GneissSchist => [0.64, 0.44, 0.74], // Лавандово-пурпурный (метаморфиты и щиты)
+                RockType::Andesite => [0.88, 0.32, 0.18], // Ярко-терракотовый (вулканические дуги)
+                RockType::FloodBasalt => [0.28, 0.25, 0.30], // Темный базальтовый (траппы, рифты, плюмы)
+
+                // Осадочные суши и шельфа
+                RockType::Sandstone => [0.88, 0.76, 0.44], // Песочно-золотистый (песчаники)
+                RockType::ShaleClay => [0.52, 0.62, 0.45], // Оливково-серо-зеленый (глины и сланцы)
+                RockType::Limestone => [0.48, 0.84, 0.82], // Светло-бирюзовый (известняки и рифы)
+
+                // Океаническое ложа
+                RockType::OceanicBasalt => [0.16, 0.22, 0.34], // Темно-сине-серый (молодой базальт MORB)
+                RockType::PelagicSediment => [0.26, 0.36, 0.48], // Приглушенный сизо-синий (абиссальные илы)
+            };
+
+            // Слегка приглушаем яркость под водой, чтобы береговая линия читалась мгновенно
+            let shade = if elev <= 0.0 { 0.72 } else { 1.0 };
+            Color::srgb(
+                base_rgb[0] * shade,
+                base_rgb[1] * shade,
+                base_rgb[2] * shade,
+            )
+            .to_linear()
+            .to_f32_array()
+        })
+        .collect()
+}
 
 /// Генерирует массив цветов по высотам рельефа
 pub fn build_elevation_colors(geology: &GeologyLayer) -> Vec<[f32; 4]> {
@@ -83,52 +121,4 @@ pub fn elevation_to_color(h: f32) -> Color {
         x if x < 0.64 => Color::srgb(0.87, 0.33, 0.12),   // кирпич (было 0.55)
         _ => Color::srgb(0.95, 0.18, 0.10),               // раскалённый красный (было 0.7)
     }
-}
-
-pub fn draw_tectonics_tab(
-    ui: &mut egui::Ui,
-    config: &mut TectonicsConfig,
-    pipeline: &mut WorldPipeline,
-) {
-    ui.heading("Настройки Тектоники");
-    ui.separator();
-
-    // Кнопка регенерации (выделенная цветом)
-    let regen_btn = ui.add_sized(
-        [ui.available_width(), 40.0],
-        egui::Button::new("Сгенерировать ландшафт"),
-    );
-    if regen_btn.clicked() {
-        pipeline.regenerate_tectonics = true;
-    }
-
-    ui.separator();
-    ui.label("Базовые параметры:");
-
-    // Ползунки напрямую меняют значения в config
-    ui.add(egui::Slider::new(&mut config.num_plates, 5..=50).text("Кол-во плит"));
-    ui.add(egui::Slider::new(&mut config.continental_ratio, 0.0..=1.0).text("Доля континентов"));
-
-    ui.separator();
-    ui.label("Высоты и океаны:");
-    ui.add(egui::Slider::new(&mut config.cont_base_height, 0.0..=0.5).text("Высота суши"));
-    ui.add(egui::Slider::new(&mut config.ocean_base_height, -1.0..=0.0).text("Глубина океана"));
-
-    ui.separator();
-    ui.label("Шум и искажения:");
-    ui.add(egui::Slider::new(&mut config.warp_strength, 0.0..=1.0).text("Сила искажения границ"));
-    ui.add(egui::Slider::new(&mut config.boundary_noise_amp, 0.0..=3.0).text("Амплитуда гор"));
-    ui.add(
-        egui::Slider::new(&mut config.detail_noise_amp, 0.0..=1.0)
-            .text("Мелкий шум (шероховатость)"),
-    );
-
-    ui.separator();
-    ui.label("Сглаживание:");
-    ui.horizontal(|ui| {
-        ui.add(egui::Slider::new(&mut config.diffusion_strength, 0.0..=1.0).text("Сила диффузии"));
-        if ui.button("Шаг сглаживания").clicked() {
-            pipeline.step_tectonic_diffusion = true;
-        }
-    });
 }

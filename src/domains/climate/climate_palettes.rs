@@ -1,0 +1,320 @@
+// src/domains/climate/climate_palettes.rs
+
+use bevy::prelude::*;
+
+use super::climate_data::ClimateLayer;
+use crate::{
+    domains::tectonics::tectonics_data::GeologyLayer,
+    viewport::{Globe, ViewportViewConfig},
+    world::{WorldConfig, topology::WorldTopology},
+};
+
+/// Палитра относительной влажности [0.0 .. 1.0]:
+/// Пустынная охра (сухо) -> Салатово-зеленый (умеренно) -> Бирюзовый -> Глубокий синий (100% влажность)
+pub fn build_humidity_colors(climate: &ClimateLayer) -> Vec<[f32; 4]> {
+    climate
+        .humidity
+        .iter()
+        .map(|&h| humidity_to_color(h).to_linear().to_f32_array())
+        .collect()
+}
+
+fn humidity_to_color(h: f32) -> Color {
+    const STOPS: &[(f32, [f32; 3])] = &[
+        (0.00, [0.82, 0.58, 0.32]), // Сухая пустыня (песочно-охристый)
+        (0.25, [0.88, 0.82, 0.45]), // Полупустыня / степь (светло-желтый)
+        (0.50, [0.42, 0.78, 0.44]), // Умеренная влажность (зелень)
+        (0.75, [0.15, 0.62, 0.78]), // Влажный морской / муссонный (бирюзовый)
+        (1.00, [0.06, 0.22, 0.68]), // Тропический ливень / насыщенный пар (глубокий синий)
+    ];
+
+    let h = h.clamp(0.0, 1.0);
+    for window in STOPS.windows(2) {
+        let (h0, c0) = window[0];
+        let (h1, c1) = window[1];
+        if h <= h1 {
+            let f = (h - h0) / (h1 - h0);
+            return Color::srgb(
+                c0[0] + (c1[0] - c0[0]) * f,
+                c0[1] + (c1[1] - c0[1]) * f,
+                c0[2] + (c1[2] - c0[2]) * f,
+            );
+        }
+    }
+    let [r, g, b] = STOPS.last().unwrap().1;
+    Color::srgb(r, g, b)
+}
+
+pub fn build_temperature_colors(climate: &ClimateLayer) -> Vec<[f32; 4]> {
+    climate
+        .temperatures
+        .iter()
+        .map(|&t| temperature_to_color(t).to_linear().to_f32_array())
+        .collect()
+}
+
+fn temperature_to_color(t: f32) -> Color {
+    // Узловые точки: (Температура °C, R, G, B)
+    const STOPS: &[(f32, [f32; 3])] = &[
+        (-30.0, [0.92, 0.94, 1.00]), // Белый / Арктический лед
+        (-15.0, [0.60, 0.20, 0.80]), // Фиолетовый (суровый мороз)
+        (0.0, [0.05, 0.35, 0.85]),   // Синий (точка замерзания)
+        (12.0, [0.20, 0.72, 0.40]),  // Зеленый (умеренный климат)
+        (22.0, [0.92, 0.82, 0.20]),  // Желтый (субтропики)
+        (30.0, [0.92, 0.40, 0.10]),  // Оранжевый (жара)
+        (42.0, [0.65, 0.08, 0.08]),  // Темно-красный (пустынный зной)
+    ];
+
+    if t <= STOPS[0].0 {
+        let [r, g, b] = STOPS[0].1;
+        return Color::srgb(r, g, b);
+    }
+    for window in STOPS.windows(2) {
+        let (t0, c0) = window[0];
+        let (t1, c1) = window[1];
+        if t <= t1 {
+            let f = (t - t0) / (t1 - t0);
+            return Color::srgb(
+                c0[0] + (c1[0] - c0[0]) * f,
+                c0[1] + (c1[1] - c0[1]) * f,
+                c0[2] + (c1[2] - c0[2]) * f,
+            );
+        }
+    }
+    let [r, g, b] = STOPS.last().unwrap().1;
+    Color::srgb(r, g, b)
+}
+
+pub fn build_albedo_colors(climate: &ClimateLayer) -> Vec<[f32; 4]> {
+    climate
+        .albedo
+        .iter()
+        .map(|&a| Color::srgb(a, a, a).to_linear().to_f32_array())
+        .collect()
+}
+
+pub fn build_continentality_colors(climate: &ClimateLayer) -> Vec<[f32; 4]> {
+    climate
+        .continentality
+        .iter()
+        .map(|&c| {
+            let color = if c < 0.0 {
+                // ОКЕАН: c ∈ [-1.0 (открытый океан) .. 0.0 (берег/маргинальное море)]
+                let t = (-c).clamp(0.0, 1.0);
+                Color::srgb(0.45 - 0.40 * t, 0.78 - 0.63 * t, 0.88 - 0.43 * t)
+            } else {
+                // СУША: c ∈ [0.0 (побережье) .. +1.0 (глубь материка)]
+                let t = c.clamp(0.0, 1.0);
+                if t < 0.5 {
+                    let s = t * 2.0;
+                    Color::srgb(0.92 - 0.07 * s, 0.85 - 0.30 * s, 0.68 - 0.38 * s)
+                } else {
+                    let s = (t - 0.5) * 2.0;
+                    Color::srgb(0.85 - 0.37 * s, 0.55 - 0.40 * s, 0.30 - 0.20 * s)
+                }
+            };
+            color.to_linear().to_f32_array()
+        })
+        .collect()
+}
+
+/// Палитра атмосферного давления: Синий = Низкое (Циклоны/ITCZ), Белый = Норма, Красный = Высокое (Антициклоны)
+pub fn build_pressure_colors(climate: &ClimateLayer) -> Vec<[f32; 4]> {
+    climate
+        .pressure
+        .iter()
+        .map(|&p| {
+            let norm = p.clamp(-1.0, 1.0);
+            let color = if norm < 0.0 {
+                let t = norm + 1.0;
+                Color::srgb(0.1 + 0.85 * t, 0.25 + 0.7 * t, 0.95)
+            } else {
+                let t = norm;
+                Color::srgb(0.95, 0.95 - 0.75 * t, 0.95 - 0.85 * t)
+            };
+            color.to_linear().to_f32_array()
+        })
+        .collect()
+}
+
+/// Палитра силы ветра (как на метеокартах): Синий (штиль) -> Бирюзовый -> Желтый -> Красный (шторм)
+pub fn build_wind_colors(climate: &ClimateLayer) -> Vec<[f32; 4]> {
+    let max_speed = climate
+        .winds
+        .iter()
+        .map(|w| w.length())
+        .fold(0.0001_f32, f32::max);
+
+    climate
+        .winds
+        .iter()
+        .map(|&w| {
+            let s = (w.length() / max_speed).clamp(0.0, 1.0).sqrt();
+            wind_speed_to_color(s).to_linear().to_f32_array()
+        })
+        .collect()
+}
+
+/// Цвет ветра по нормированной силе [0..1]. Общий для меша и 3D-стрелок.
+fn wind_speed_to_color(s: f32) -> Color {
+    let s = s.clamp(0.0, 1.0);
+    match s {
+        x if x < 0.25 => {
+            let t = x / 0.25;
+            Color::srgb(0.08, 0.12 + 0.48 * t, 0.35 + 0.45 * t) // тёмно-синий → голубой
+        }
+        x if x < 0.50 => {
+            let t = (x - 0.25) / 0.25;
+            Color::srgb(0.08 + 0.22 * t, 0.60 + 0.25 * t, 0.80 - 0.40 * t) // голубой → зелёный
+        }
+        x if x < 0.75 => {
+            let t = (x - 0.50) / 0.25;
+            Color::srgb(0.30 + 0.65 * t, 0.85, 0.40 - 0.30 * t) // зелёный → жёлтый
+        }
+        _ => {
+            let t = (s - 0.75) / 0.25;
+            Color::srgb(0.95, 0.85 - 0.70 * t, 0.10 + 0.30 * t) // жёлтый → красный
+        }
+    }
+}
+
+/// Отрисовка 3D-стрелок ветра (берет уже готовый кэш из ClimateLayer, рассчитанный в фоновом потоке!)
+pub(super) fn draw_wind_arrows_gizmos(
+    mut gizmos: Gizmos,
+    topology: Res<WorldTopology>,
+    geology: Res<GeologyLayer>,
+    climate: Res<ClimateLayer>,
+    view_config: Res<ViewportViewConfig>,
+    world_config: Res<WorldConfig>,
+    globe_query: Query<&Transform, With<Globe>>,
+) {
+    if !view_config.show_wind_arrows
+        || climate.wind_arrows_cache.is_empty()
+        || geology.elevations.is_empty()
+    {
+        return;
+    }
+    let Ok(globe_transform) = globe_query.single() else {
+        return;
+    };
+
+    let r = world_config.radius;
+    let base_len = r * 0.08;
+
+    for &(i, s) in &climate.wind_arrows_cache {
+        let wind_dir = climate.winds_3d[i].normalize_or_zero();
+        let cell_dir = topology.cells[i].center;
+        let h = geology.elevations[i].max(0.0);
+
+        let local_start = cell_dir * (r + h + r * 0.015);
+        let arrow_len = base_len * (0.35 + 0.65 * s);
+        let local_end = local_start + wind_dir * arrow_len;
+
+        let world_start = globe_transform.transform_point(local_start);
+        let world_end = globe_transform.transform_point(local_end);
+
+        let color = wind_speed_to_color(s).with_alpha(0.45 + 0.55 * s);
+        gizmos.arrow(world_start, world_end, color);
+    }
+}
+
+/// Отрисовка 3D-стрелок океанических течений (берет уже готовый кэш из ClimateLayer!)
+pub(super) fn draw_ocean_currents_gizmos(
+    mut gizmos: Gizmos,
+    topology: Res<WorldTopology>,
+    geology: Res<GeologyLayer>,
+    climate: Res<ClimateLayer>,
+    view_config: Res<ViewportViewConfig>,
+    world_config: Res<WorldConfig>,
+    globe_query: Query<&Transform, With<Globe>>,
+) {
+    if !view_config.show_ocean_currents
+        || climate.current_arrows_cache.is_empty()
+        || geology.elevations.is_empty()
+    {
+        return;
+    }
+    let Ok(globe_transform) = globe_query.single() else {
+        return;
+    };
+
+    let r = world_config.radius;
+    let base_len = r * 0.07;
+
+    for &(i, s) in &climate.current_arrows_cache {
+        let current_dir = climate.ocean_currents[i].normalize_or_zero();
+        let cell_dir = topology.cells[i].center;
+
+        let local_start = cell_dir * (r + r * 0.005);
+        let arrow_len = base_len * (0.2 + 0.8 * s.powf(1.5));
+        let local_end = local_start + current_dir * arrow_len;
+
+        let world_start = globe_transform.transform_point(local_start);
+        let world_end = globe_transform.transform_point(local_end);
+
+        let color =
+            Color::srgb(0.05 + 0.1 * s, 0.3 + 0.6 * s, 0.8 + 0.2 * s).with_alpha(0.6 + 0.4 * s);
+        gizmos.arrow(world_start, world_end, color);
+    }
+}
+
+/// Палитра осадков [0.0 .. 1.0] с автоматическим разделением на ДОЖДЬ (T > 0°C) и СНЕГ (T < 0°C).
+pub fn build_precipitation_colors(climate: &ClimateLayer) -> Vec<[f32; 4]> {
+    climate
+        .precipitation
+        .iter()
+        .zip(&climate.temperatures)
+        .map(|(&p, &t)| precipitation_to_color(p, t).to_linear().to_f32_array())
+        .collect()
+}
+
+fn precipitation_to_color(p: f32, temp_c: f32) -> Color {
+    // 1. Шкала жидких осадков (Дождь):
+    // Пустыня -> Степь -> Умеренные дожди -> Сильные дожди -> Тропический ливень
+    const RAIN_STOPS: &[(f32, [f32; 3])] = &[
+        (0.00, [0.85, 0.68, 0.42]), // Аридная пустыня (песочный)
+        (0.12, [0.86, 0.84, 0.44]), // Сухая степь / полупустыня (желтый)
+        (0.30, [0.38, 0.76, 0.42]), // Умеренные осадки (зеленый)
+        (0.55, [0.12, 0.56, 0.80]), // Влажный климат (сине-голубой)
+        (0.78, [0.16, 0.22, 0.74]), // Муссонный ливень (глубокий индиго)
+        (1.00, [0.52, 0.12, 0.68]), // Экстремальный тропический/горный ливень (пурпурный)
+    ];
+
+    // 2. Шкала твердых осадков (Снег при T < 0°C):
+    // Сухая мерзлота (мало снега) -> Поземка -> Снегопад -> Мощная метель/ледник
+    const SNOW_STOPS: &[(f32, [f32; 3])] = &[
+        (0.00, [0.52, 0.55, 0.60]), // Сухая морозная пустыня (холодный серо-стальной)
+        (0.15, [0.58, 0.72, 0.82]), // Малоснежная тундра (сизо-голубой)
+        (0.40, [0.72, 0.88, 0.96]), // Умеренный снегопад (морозно-голубой)
+        (0.70, [0.90, 0.96, 1.00]), // Сильный снегопад (белоснежный)
+        (1.00, [0.82, 0.76, 0.98]), // Экстремальная снежная буря в горах (лавандово-белый)
+    ];
+
+    let p = p.clamp(0.0, 1.0);
+    let rain_rgb = sample_gradient(RAIN_STOPS, p);
+    let snow_rgb = sample_gradient(SNOW_STOPS, p);
+
+    let snow_frac = ClimateLayer::snow_fraction(temp_c);
+    Color::srgb(
+        rain_rgb[0] * (1.0 - snow_frac) + snow_rgb[0] * snow_frac,
+        rain_rgb[1] * (1.0 - snow_frac) + snow_rgb[1] * snow_frac,
+        rain_rgb[2] * (1.0 - snow_frac) + snow_rgb[2] * snow_frac,
+    )
+}
+
+#[inline]
+fn sample_gradient(stops: &[(f32, [f32; 3])], x: f32) -> [f32; 3] {
+    for window in stops.windows(2) {
+        let (x0, c0) = window[0];
+        let (x1, c1) = window[1];
+        if x <= x1 {
+            let f = (x - x0) / (x1 - x0).max(1e-5);
+            return [
+                c0[0] + (c1[0] - c0[0]) * f,
+                c0[1] + (c1[1] - c0[1]) * f,
+                c0[2] + (c1[2] - c0[2]) * f,
+            ];
+        }
+    }
+    stops.last().unwrap().1
+}
