@@ -6,6 +6,7 @@ pub mod topology;
 
 use bevy::prelude::*;
 use pipeline::{PipelineSet, PipelineStage, WorldPipeline};
+use rand::RngExt;
 use states::AppState;
 use topology::WorldTopology;
 
@@ -21,14 +22,24 @@ pub struct WorldConfig {
     /// Размерность, с которой будет создана СЛЕДУЮЩАЯ планета.
     /// Размерность ТЕКУЩЕЙ планеты хранится в `WorldTopology.subdivisions`.
     pub next_planet_subdivisions: u32,
+    /// Глобальный сид генерации мира (тектоника, ветровые волны, меандры рек, экотоны биомов)
+    pub seed: u32,
 }
 
 impl Default for WorldConfig {
     fn default() -> Self {
+        let mut rng = rand::rng();
         Self {
             radius: 5.0,                 // release - 7
             next_planet_subdivisions: 7, // release - 8
+            seed: rng.random_range(0..=u32::MAX),
         }
+    }
+}
+
+impl WorldConfig {
+    pub fn randomize_seed(&mut self) {
+        self.seed = rand::rng().random_range(0..=u32::MAX);
     }
 }
 

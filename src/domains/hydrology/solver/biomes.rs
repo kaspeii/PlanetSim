@@ -1,5 +1,6 @@
 // src/domains/hydrology/solver/biomes.rs
 
+use super::SurfaceNoise;
 use crate::{
     domains::{
         climate::climate_data::ClimateLayer,
@@ -18,6 +19,7 @@ pub(super) fn compute_biomes(
     climate: &ClimateLayer,
     hydrology: &mut HydrologyLayer,
     config: &HydrologyConfig,
+    noise: &SurfaceNoise,
 ) {
     let num_cells = topology.cells.len();
 
@@ -33,15 +35,25 @@ pub(super) fn compute_biomes(
         let warm_temp = t_summer.max(t_winter).max(t_spring);
         let cold_temp = t_summer.min(t_winter).min(t_spring);
 
-        // 2. Океанические биомы
+        // Когерентный шум для рваных экотонов (не меняет сами физические массивы климата)
+        let t_jit = noise.temp_jitter[i] * 1.5;
+        let m_jit = noise.moisture_jitter[i];
+
+        let eff_mean_temp = mean_temp + t_jit;
+        let eff_warm_temp = warm_temp + t_jit * 0.85;
+        let eff_cold_temp = cold_temp + t_jit * 0.85;
+
+        // 2. Океанические биомы (с естественной кромкой морского льда)
         if elev <= 0.0 {
-            hydrology.biomes[i] = if mean_temp < -4.5 || warm_temp < -1.0 {
-                Biome::SeaIce
-            } else if elev > -0.09 {
-                Biome::ShallowOcean
-            } else {
-                Biome::DeepOcean
-            };
+            let ice_jitter = noise.temp_jitter[i] * 0.8;
+            hydrology.biomes[i] =
+                if mean_temp + ice_jitter < -4.5 || warm_temp + ice_jitter < -1.0 {
+                    Biome::SeaIce
+                } else if elev > -0.09 {
+                    Biome::ShallowOcean
+                } else {
+                    Biome::DeepOcean
+                };
             continue;
         }
 
@@ -73,21 +85,21 @@ pub(super) fn compute_biomes(
 
         // 4. Криосфера и высокогорные скалы
         // Вечные льды (ледниковые щиты и снежные вершины)
-        if warm_temp < 0.0 || (mean_temp < -9.0 && warm_temp < 3.5) {
+        if eff_warm_temp < 0.0 || (eff_mean_temp < -9.0 && eff_warm_temp < 3.5) {
             hydrology.biomes[i] = Biome::IceSheet;
             continue;
         }
 
         // Высокогорные скалы и осыпи (крутые склоны на Leptosol или выше линии леса)
         if soil == SoilType::Leptosol
-            && (elev > 0.22 || max_slope > config.mountain_slope_threshold * 1.15)
+            && (elev > 0.22 + m_jit * 0.02 || max_slope > config.mountain_slope_threshold * 1.15)
         {
             hydrology.biomes[i] = Biome::AlpineBare;
             continue;
         }
 
         // Тундра (короткое холодное лето, деревья не могут вырасти, мерзлотный Gelisol)
-        if warm_temp < 8.5 || soil == SoilType::Gelisol {
+        if eff_warm_temp < 8.5 || soil == SoilType::Gelisol {
             hydrology.biomes[i] = if max_slope > config.mountain_slope_threshold {
                 Biome::AlpineBare
             } else {
@@ -99,12 +111,10 @@ pub(super) fn compute_biomes(
         // 5. ГЛАВНЫЙ ИСТОЧНИК ВЛАГИ ДЛЯ БИОМОВ — ВЛАЖНОСТЬ ПОЧВЫ (soil_moisture)
         let sm = hydrology.soil_moisture[i];
 
-        // Переводим влажность почвы [0..1] в эквивалентный индекс увлажнения Уиттекера (MI = P_eff / PET):
-        // sm = 0.15 -> MI ~ 0.18 (граница пустыни)
-        // sm = 0.35 -> MI ~ 0.50 (степь / саванна)
-        // sm = 0.55 -> MI ~ 0.95 (густой лес)
-        // sm = 0.75 -> MI ~ 1.65 (дождевой лес / болото)
-        let moisture_idx = (sm / (1.0 - sm * 0.68).max(0.15)).clamp(0.0, 2.5);
+        // Переводим влажность почвы [0..1] в эквивалентный индекс увлажнения Уиттекера
+        // и возмущаем порог 3D-шумом (±12%) для формирования лесостепи и пятнистых переходов
+        let base_moisture_idx = (sm / (1.0 - sm * 0.68).max(0.15)).clamp(0.0, 2.5);
+        let moisture_idx = (base_moisture_idx * (1.0 + m_jit * 0.12)).clamp(0.0, 2.5);
 
         // Оцениваем, сколько влаги пришло исключительно от дождей (без рек)
         let pet = ((mean_temp + 10.0).max(2.0) * 0.013 * config.aridity_evap_scale).max(0.025);
@@ -118,15 +128,14 @@ pub(super) fn compute_biomes(
         if max_slope < config.wetland_max_slope
             && elev < 0.12
             && (soil == SoilType::Gleysol || clay > 0.36)
-            && (sm > 0.74 || (is_major_river && sm > 0.58))
+            && (sm > 0.74 - m_jit * 0.04 || (is_major_river && sm > 0.58))
         {
             hydrology.biomes[i] = Biome::Wetland;
             continue;
         }
 
         // Б) Пойменный оазис / галерейный лес (RiparianOasis):
-        // Климат вокруг сухой (пустыня/полупустыня), но река напитала почву водой!
-        if mean_temp > 5.0
+        if eff_mean_temp > 5.0
             && rain_only_sm < 0.28
             && (river_moisture_surplus > 0.16 || (is_major_river && sm > 0.36))
         {
@@ -136,9 +145,9 @@ pub(super) fn compute_biomes(
 
         // 7. Классификация Уиттекера по влажности почвы и сезонности
         hydrology.biomes[i] = classify_whittaker_biome(
-            mean_temp,
-            warm_temp,
-            cold_temp,
+            eff_mean_temp,
+            eff_warm_temp,
+            eff_cold_temp,
             moisture_idx,
             warm_precip,
             cold_precip,
@@ -170,7 +179,6 @@ fn classify_whittaker_biome(
 
     if moisture_idx < 0.33 {
         return if mean_temp < 9.0 || cold_temp < -6.0 {
-            // Переходная холодная полупустыня / сухая степь
             if soil == SoilType::Chernozem {
                 Biome::TemperateGrassland
             } else {
@@ -192,7 +200,6 @@ fn classify_whittaker_biome(
 
     // --- В. УМЕРЕННЫЙ И СУБТРОПИЧЕСКИЙ ПОЯС (5.5°C .. 19.5°C) ---
     if mean_temp < 19.5 {
-        // Проверка на средиземноморский режим: теплая зима (> 2°C), жаркое сухое лето, дождливая зима
         let is_mediterranean = cold_temp > 1.5
             && warm_temp > 18.0
             && cold_precip > warm_precip * 1.65
@@ -206,7 +213,6 @@ fn classify_whittaker_biome(
             return Biome::TemperateGrassland;
         }
 
-        // На очень бедных песчаных подзолах даже в умеренном климате растут сосновые боры (Тайга)
         if soil == SoilType::Podzol && sand > 0.55 && mean_temp < 11.0 {
             return Biome::BorealTaiga;
         }
@@ -219,12 +225,10 @@ fn classify_whittaker_biome(
     }
 
     // --- Г. ТРОПИЧЕСКИЙ И ЭКВАТОРИАЛЬНЫЙ ПОЯС (> 19.5°C) ---
-    // Коэффициент сухого сезона (отношение минимальных сезонных осадков к максимальным)
     let p_min = warm_precip.min(cold_precip);
     let p_max = warm_precip.max(cold_precip).max(1e-4);
     let seasonality_ratio = p_min / p_max;
 
-    // Если почва сильно песчаная или влаги умеренно -> Саванна
     if moisture_idx < 0.72 || (moisture_idx < 0.95 && seasonality_ratio < 0.35) {
         Biome::Savanna
     } else if moisture_idx < 1.18 || seasonality_ratio < 0.45 {
