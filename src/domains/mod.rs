@@ -8,7 +8,7 @@ pub mod tectonics;
 
 use bevy::prelude::*;
 use generator::{GenerationRequest, handle_generation_task, spawn_generation_task};
-use save::SaveUiState;
+use save::{SaveUiState, handle_save_load_task, spawn_save_load_task};
 
 pub struct DomainsPlugin;
 
@@ -22,7 +22,15 @@ impl Plugin for DomainsPlugin {
                 hydrology::HydrologyPlugin,
             ))
             .add_systems(Startup, warmup_gizmos_shader)
-            .add_systems(Update, (spawn_generation_task, handle_generation_task));
+            .add_systems(
+                Update,
+                (
+                    spawn_generation_task,
+                    handle_generation_task,
+                    spawn_save_load_task,
+                    handle_save_load_task,
+                ),
+            );
     }
 }
 
