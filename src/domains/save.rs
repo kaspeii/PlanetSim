@@ -19,7 +19,7 @@ use crate::{
         climate::{ClimateConfig, climate_data::ClimateLayer},
         generator::GenerationRequest,
         hydrology::{HydrologyConfig, HydrologyLayer},
-        tectonics::{GeologyLayer, TectonicsConfig},
+        tectonics::{GeologyLayer, TectonicsConfig, build_earth_geology},
     },
     world::{
         WorldConfig,
@@ -82,6 +82,9 @@ pub enum SaveLoadRequest {
         name: String,
         path: PathBuf,
     },
+    /// Собрать эталонную Землю из assets/earth/earth_data.bin под текущий subdivisions,
+    /// сохранить в saves/planets/Earth.planet и загрузить в сцену
+    BuildAndLoadEarth,
 }
 
 // === ЛОГГЕР ПРОГРЕССА СОХРАНЕНИЯ / ЗАГРУЗКИ ДЛЯ ОВЕРЛЕЯ ===
@@ -354,6 +357,7 @@ pub fn spawn_save_load_task(
     existing_tasks: Query<(Entity, &SaveLoadTask)>,
     world_config: Res<WorldConfig>,
     topology: Res<WorldTopology>,
+    t_config: Res<TectonicsConfig>,
     geology: Res<GeologyLayer>,
     climate: Res<ClimateLayer>,
     hydrology: Res<HydrologyLayer>,
@@ -630,6 +634,94 @@ pub fn spawn_save_load_task(
                 finished_at: None,
             });
         }
+
+        SaveLoadRequest::BuildAndLoadEarth => {
+            let target_subdivs = world_config.next_planet_subdivisions;
+            let current_subdivs = topology.subdivisions;
+            let topo_clone = if target_subdivs == current_subdivs {
+                Some((*topology).clone())
+            } else {
+                None
+            };
+            let t_cfg_clone = (*t_config).clone();
+            let radius = world_config.radius;
+
+            let logger = SaveLoadLogger::new(3);
+            let thread_logger = logger.clone();
+
+            save_ui.is_busy = true;
+            let title = format!("Сборка эталона Земли (subdiv {})", target_subdivs);
+
+            let task = pool.spawn(async move {
+                let (work_topo, new_topo_opt) = match topo_clone {
+                    Some(t) => {
+                        thread_logger.start_step("Подготовка текущей топологии сферы...");
+                        (t, None)
+                    }
+                    None => {
+                        thread_logger.start_step(format!(
+                            "Построение топологии сферы (subdiv {})...",
+                            target_subdivs
+                        ));
+                        let t = WorldTopology::new(target_subdivs);
+                        (t.clone(), Some(t))
+                    }
+                };
+
+                thread_logger.start_step(
+                    "Проекция рельефа ETOPO, плит PB2002, вулканов и литологии...",
+                );
+                let earth_geo = build_earth_geology(&work_topo, &t_cfg_clone)?;
+                let num_cells = work_topo.cells.len();
+
+                thread_logger.start_step("Кэширование контейнера saves/planets/Earth.planet...");
+                if let Ok(geo_bytes) = bincode::serialize(&earth_geo) {
+                    let _ = fs::create_dir_all(PLANET_SAVE_DIR);
+                    let save_data = PlanetSaveFile {
+                        version: PLANET_FILE_VERSION,
+                        radius,
+                        subdivisions: work_topo.subdivisions,
+                        seed: 2026,
+                        geology_bytes: Some(geo_bytes),
+                        climate_bytes: None,
+                        hydrology_bytes: None,
+                    };
+                    if let Ok(file_bytes) = bincode::serialize(&save_data) {
+                        let path = Path::new(PLANET_SAVE_DIR).join("Earth.planet");
+                        let _ = fs::write(path, file_bytes);
+                    }
+                }
+
+                let mut climate = ClimateLayer::default();
+                climate.resize(num_cells);
+                let mut hydrology = HydrologyLayer::default();
+                hydrology.resize(num_cells);
+
+                thread_logger.finish_ok();
+                Ok(SaveLoadOutcome::Loaded(Box::new(LoadedPlanetPayload {
+                    planet_name: "Earth".to_string(),
+                    radius,
+                    seed: 2026,
+                    new_topology: new_topo_opt,
+                    geology: earth_geo,
+                    climate,
+                    hydrology,
+                    missing_stage: Some((
+                        PipelineStage::Climate,
+                        "загружен эталонный рельеф, плиты и породы Земли".to_string(),
+                    )),
+                })))
+            });
+
+            commands.spawn(SaveLoadTask {
+                title,
+                is_saving: false,
+                is_initial,
+                logger,
+                task: Some(task),
+                finished_at: None,
+            });
+        }
     }
 }
 
@@ -690,6 +782,7 @@ pub fn handle_save_load_task(
                     pipeline.rebuild_rivers = true;
                     next_state.set(AppState::InGame);
                     save_ui.planet_save_name = planet_name.clone();
+                    save_ui.refresh_lists();
 
                     if let Some((stage, reason)) = missing_stage {
                         if save_ui.auto_regenerate_missing {
@@ -732,6 +825,7 @@ pub fn handle_save_load_task(
 pub fn draw_save_load_windows_system(
     In(ctx): In<egui::Context>,
     mut save_ui: ResMut<SaveUiState>,
+    world_config: Res<WorldConfig>,
     geology: Res<GeologyLayer>,
     mut t_config: ResMut<TectonicsConfig>,
     mut c_config: ResMut<ClimateConfig>,
@@ -746,8 +840,29 @@ pub fn draw_save_load_windows_system(
         egui::Window::new("💾 Сохранения планет")
             .open(&mut open)
             .resizable(true)
-            .default_width(420.0)
+            .default_width(430.0)
             .show(&ctx, |ui| {
+                // --- Секция эталонного пресета Земли ---
+                ui.heading("🌍 Эталонная планета Земля (Бенчмарк)");
+                ui.small(
+                    "Реальный рельеф NOAA ETOPO, 14 плит PB2002, горячие точки и литология пород.",
+                );
+                ui.add_space(4.0);
+                ui.add_enabled_ui(!is_busy, |ui| {
+                    let btn_text = format!(
+                        "🌍 Собрать и загрузить Землю (под Subdiv {})",
+                        world_config.next_planet_subdivisions
+                    );
+                    if ui
+                        .add_sized([ui.available_width(), 32.0], egui::Button::new(btn_text))
+                        .clicked()
+                    {
+                        save_ui.pending_request = Some(SaveLoadRequest::BuildAndLoadEarth);
+                    }
+                });
+
+                ui.separator();
+
                 // --- Секция сохранения текущей планеты ---
                 ui.heading("Сохранить текущую планету");
                 let has_planet = !geology.elevations.is_empty();
@@ -815,7 +930,7 @@ pub fn draw_save_load_windows_system(
                     ui.weak("Нет сохраненных планет в папке saves/planets/");
                 } else {
                     egui::ScrollArea::vertical()
-                        .max_height(240.0)
+                        .max_height(220.0)
                         .show(ui, |ui| {
                             for entry in files {
                                 ui.horizontal(|ui| {

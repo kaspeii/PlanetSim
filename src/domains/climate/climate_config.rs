@@ -125,7 +125,7 @@ impl Default for ClimateConfig {
             moisture_advection_strength: 2.0,
             orographic_rain_shadow: 7.0,
             ocean_evaporation_rate: 1.0,
-            subsidence_drying_strength: 0.5,
+            subsidence_drying_strength: 1.0,
             precipitation_rate: 1.0,
             land_moisture_recycling: 0.60,
         }
