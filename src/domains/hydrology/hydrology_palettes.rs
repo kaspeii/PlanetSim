@@ -303,7 +303,7 @@ pub(super) fn draw_river_flow_gizmos(
     };
 
     let r = world_config.radius;
-    let base_len = r * 0.004;
+    let base_len = r * 0.002;
 
     for &(i, dir, s) in &hydrology.river_flow_arrows {
         let cell_pos = topology.cells[i].center;
@@ -321,6 +321,6 @@ pub(super) fn draw_river_flow_gizmos(
         let alpha = 0.35 + 0.55 * s;
         let color = Color::srgb(1.0, 0.70 + 0.15 * s, 0.30 + 0.15 * s).with_alpha(alpha);
 
-        gizmos.arrow(world_start, world_end, color);
+        gizmos.arrow(world_start, world_end, color).with_tip_length(arrow_len * 2.0);
     }
 }
