@@ -103,6 +103,7 @@ pub struct HydrologyLayer {
     pub runoff: Vec<f32>,
     pub flow_dir: Vec<Option<u8>>,
     pub flow_accumulation: Vec<f32>,
+    pub river_flow_arrows: Vec<(usize, Vec3, f32)>, 
 
     /// Фактическая влажность почвы (от осадков, талых вод и фильтрации из рек) [0.0 .. 1.0]
     pub soil_moisture: Vec<f32>,
@@ -138,6 +139,7 @@ impl HydrologyLayer {
         self.runoff.resize(num_cells, 0.0);
         self.flow_dir.resize(num_cells, None);
         self.flow_accumulation.resize(num_cells, 0.0);
+        self.river_flow_arrows.clear();
 
         self.soil_moisture.resize(num_cells, 0.0);
 

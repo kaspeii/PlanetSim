@@ -13,10 +13,7 @@ use crate::{
     },
     viewport::{MapOverlay, ViewportViewConfig},
     world::{
-        WorldConfig,
-        pipeline::WorldPipeline,
-        start_new_planet,
-        topology::WorldTopology,
+        WorldConfig, pipeline::WorldPipeline, start_new_planet, topology::WorldTopology,
         world_ui::draw_world_tab,
     },
 };
@@ -206,7 +203,10 @@ fn draw_left_panel(ui: &mut egui::Ui, world: &mut World) {
 
             world.resource_scope(|_world, mut overlay: Mut<MapOverlay>| {
                 for (layer, label) in LAYERS.iter() {
-                    if ui.radio_value(&mut *overlay, layer.clone(), *label).changed() {
+                    if ui
+                        .radio_value(&mut *overlay, layer.clone(), *label)
+                        .changed()
+                    {
                         recolor = true;
                     }
                 }
@@ -226,6 +226,7 @@ fn draw_left_panel(ui: &mut egui::Ui, world: &mut World) {
                 ui.checkbox(&mut view_cfg.show_rivers, "Русла рек");
                 ui.checkbox(&mut view_cfg.show_wind_arrows, "3D-стрелки ветров");
                 ui.checkbox(&mut view_cfg.show_ocean_currents, "3D-стрелки течений");
+                ui.checkbox(&mut view_cfg.show_river_flow, "Стрелки течения рек");
             });
 
             if reposition || recolor {

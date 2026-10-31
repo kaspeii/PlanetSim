@@ -88,6 +88,7 @@ pub struct ViewportViewConfig {
     pub show_rivers: bool,
     pub show_wind_arrows: bool,
     pub show_ocean_currents: bool,
+    pub show_river_flow: bool,
     pub show_axis_equator: bool,
 }
 
@@ -98,6 +99,7 @@ impl Default for ViewportViewConfig {
             show_rivers: true,
             show_wind_arrows: false,
             show_ocean_currents: false,
+            show_river_flow: false,
             show_axis_equator: false,
         }
     }

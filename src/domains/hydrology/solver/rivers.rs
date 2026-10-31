@@ -5,7 +5,7 @@ use std::{cmp::Ordering, collections::BinaryHeap, f32::consts::PI};
 use super::SurfaceNoise;
 use crate::{
     domains::{
-        climate::climate_data::ClimateLayer,
+        climate::climate_data::{ClimateLayer, WaterKind},
         hydrology::{
             hydrology_config::HydrologyConfig,
             hydrology_data::{HydrologyLayer, SoilType},
@@ -199,7 +199,7 @@ pub(super) fn compute_rivers(
     }
 
     // =========================================================================
-    // 3. АККУМУЛЯЦИЯ ПОТОКА (от вершин к океану)
+    // 3. АККУМУЛЯЦИЯ ПОТОКА (от вершин к океану) + сбор притока в озёра
     // =========================================================================
     for i in 0..num_cells {
         hydrology.flow_accumulation[i] = if geology.elevations[i] > 0.0 {
@@ -209,14 +209,152 @@ pub(super) fn compute_rivers(
         };
     }
 
+    // Вода, впадающая в каждое озеро (не путать с flow_accumulation — там у озёр 0).
+    let mut lake_inflow = vec![0.0f32; num_cells];
+
     for &u in downstream_order.iter().rev() {
         let flow = hydrology.flow_accumulation[u];
         if let Some(k) = hydrology.flow_dir[u] {
             let target = topology.cells[u].neighbors[k as usize];
             if geology.elevations[target] > 0.0 {
                 hydrology.flow_accumulation[target] += flow;
+            } else {
+                // Не океан (океан был seed'ом flood'а, туда flow_dir не идёт) — значит, озеро.
+                lake_inflow[target] += flow;
             }
         }
+    }
+
+    // =========================================================================
+    // 3.5. СТОК ИЗ ОЗЁР (только для водоёмов с положительным водным балансом)
+    //
+    // Озеро эндорейно, если приток + осадки ≤ испарение (Каспий, Арал, Чад, Б. Солёное).
+    // Озеро проточно, если баланс положительный (Байкал, Великие озёра, Виктория):
+    // избыток воды переливается через самую низкую точку берега (устье) и уходит в море.
+    //
+    // Устье — самая низкая суша, прилегающая к озеру. Чтобы избежать циклов,
+    // перенаправляем flow_dir[устья] только на клетку со СТРОГО меньшим filled_elev.
+    // =========================================================================
+    let mut boost = vec![0.0f32; num_cells];
+    let mut visited_lake = vec![false; num_cells];
+
+    for seed in 0..num_cells {
+        let is_lake = matches!(
+            climate.water_kind.get(seed).copied().unwrap_or(WaterKind::Land),
+            WaterKind::Lake
+        );
+        if !is_lake || visited_lake[seed] {
+            continue;
+        }
+
+        // --- Группируем клетки одного озера через BFS ---
+        let mut lake_cells = Vec::new();
+        let mut stack = vec![seed];
+        visited_lake[seed] = true;
+        while let Some(c) = stack.pop() {
+            lake_cells.push(c);
+            for &n in &topology.cells[c].neighbors {
+                let n_is_lake = matches!(
+                    climate.water_kind.get(n).copied().unwrap_or(WaterKind::Land),
+                    WaterKind::Lake
+                );
+                if n_is_lake && !visited_lake[n] {
+                    visited_lake[n] = true;
+                    stack.push(n);
+                }
+            }
+        }
+
+        // --- Водный баланс: приток с суши + осадки на зеркало − испарение ---
+        let mut net_balance: f32 = lake_cells.iter().map(|&c| lake_inflow[c]).sum();
+        for &c in &lake_cells {
+            let p_annual = (2.0 * climate.spring.precipitation[c]
+                + climate.summer.precipitation[c]
+                + climate.winter.precipitation[c])
+                * 0.25;
+            let t_mean = (2.0 * climate.spring.temperatures[c]
+                + climate.summer.temperatures[c]
+                + climate.winter.temperatures[c])
+                * 0.25;
+            // Та же шкала PET, что в runoff/soil_moisture — баланс в одних единицах.
+            let pet = ((t_mean + 10.0).max(0.5) * 0.016 * config.aridity_evap_scale).max(0.02);
+            net_balance += (p_annual - pet) * cell_area;
+        }
+
+        if net_balance <= 0.0 {
+            continue; // эндорейное озеро — вся вода испаряется
+        }
+
+        // --- Устье: самая низкая суша на берегу ---
+        let mut outlet: Option<usize> = None;
+        let mut outlet_elev = f32::MAX;
+        let mut outlet_is_spiller = false;
+
+        // Проход 1: ищем spiller'а с минимальным filled_elev
+        for &c in &lake_cells {
+            for &n in &topology.cells[c].neighbors {
+                if geology.elevations[n] <= 0.0 { continue; }
+
+                // Проверяем: flow_dir[n] ведёт в озеро (feeder) или нет (spiller)?
+                let points_to_lake = hydrology.flow_dir[n].map_or(false, |k| {
+                    let t = topology.cells[n].neighbors[k as usize];
+                    matches!(
+                        climate.water_kind.get(t).copied().unwrap_or(WaterKind::Land),
+                        WaterKind::Lake
+                    )
+                });
+                if points_to_lake { continue; } // feeder — пропускаем
+
+                if filled_elev[n] < outlet_elev {
+                    outlet_elev = filled_elev[n];
+                    outlet = Some(n);
+                    outlet_is_spiller = true;
+                }
+            }
+        }
+
+        // Проход 2: fallback — если spiller'ов нет, берём feeder (для последующего breach)
+        if outlet.is_none() {
+            for &c in &lake_cells {
+                for &n in &topology.cells[c].neighbors {
+                    if geology.elevations[n] > 0.0 && filled_elev[n] < outlet_elev {
+                        outlet_elev = filled_elev[n];
+                        outlet = Some(n);
+                    }
+                }
+            }
+            // outlet_is_spiller = false остаётся
+        }
+
+        let Some(outlet) = outlet else { continue; };
+
+        if outlet_is_spiller {
+            // Естественный сток: просто даём озеру перелить воду в spiller.
+            // flow_dir[outlet] уже правильный, boost утечёт по существующей цепочке вниз.
+            boost[outlet] += net_balance;
+            continue;
+        }
+    }
+
+    // --- Распространение стока из озёр вниз по течению ---
+    // Идём в upstream-to-downstream порядке (тот же, что base accumulation).
+    // flow_dir гарантирует строгое убывание filled_elev, поэтому boost
+    // достигнет берега за конечное число шагов без циклов.
+    for &u in downstream_order.iter().rev() {
+        let b = boost[u];
+        if b <= 0.0 {
+            continue;
+        }
+        if let Some(k) = hydrology.flow_dir[u] {
+            let target = topology.cells[u].neighbors[k as usize];
+            if geology.elevations[target] > 0.0 {
+                boost[target] += b;
+            }
+        }
+    }
+
+    for i in 0..num_cells {
+        hydrology.flow_accumulation[i] += boost[i];
     }
 
     // =========================================================================

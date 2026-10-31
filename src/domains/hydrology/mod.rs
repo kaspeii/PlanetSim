@@ -9,6 +9,8 @@ mod solver;
 pub use hydrology_config::HydrologyConfig;
 pub use hydrology_data::HydrologyLayer;
 pub use solver::{apply_surface_feedback_to_climate, simulate_hydrology};
+use crate::world::{pipeline::PipelineSet, states::AppState};
+use hydrology_palettes::draw_river_flow_gizmos;
 
 use bevy::prelude::*;
 
@@ -17,6 +19,12 @@ pub struct HydrologyPlugin;
 impl Plugin for HydrologyPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HydrologyConfig>()
-            .init_resource::<HydrologyLayer>();
+            .init_resource::<HydrologyLayer>()
+            .add_systems(
+                Update,
+                draw_river_flow_gizmos
+                    .in_set(PipelineSet::Render)
+                    .run_if(in_state(AppState::InGame)),
+            );
     }
 }

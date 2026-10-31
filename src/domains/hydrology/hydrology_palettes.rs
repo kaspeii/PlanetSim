@@ -1,5 +1,12 @@
 // src/domains/hydrology/hydrology_palettes.rs
 
+use crate::{
+    domains::tectonics::tectonics_data::GeologyLayer,
+    viewport::{Globe, ViewportViewConfig},
+    world::{WorldConfig, topology::WorldTopology},
+};
+use bevy::prelude::*;
+
 use super::hydrology_data::{BioResource, Biome, HydrologyLayer, MineralResource, SoilType};
 use bevy::color::{Color, ColorToComponents};
 
@@ -277,4 +284,43 @@ pub fn build_bio_resource_colors(
             Color::srgb(r, g, b).to_linear().to_f32_array()
         })
         .collect()
+}
+
+pub(super) fn draw_river_flow_gizmos(
+    mut gizmos: Gizmos,
+    topology: Res<WorldTopology>,
+    geology: Res<GeologyLayer>,
+    hydrology: Res<HydrologyLayer>,
+    view_config: Res<ViewportViewConfig>,
+    world_config: Res<WorldConfig>,
+    globe_query: Query<&Transform, With<Globe>>,
+) {
+    if !view_config.show_river_flow || hydrology.river_flow_arrows.is_empty() {
+        return;
+    }
+    let Ok(globe_transform) = globe_query.single() else {
+        return;
+    };
+
+    let r = world_config.radius;
+    let base_len = r * 0.004;
+
+    for &(i, dir, s) in &hydrology.river_flow_arrows {
+        let cell_pos = topology.cells[i].center;
+        let elev = geology.elevations[i].max(0.0);
+
+        // Чуть выше поверхности — чтобы не тонуло в 3D-ленте реки.
+        let local_start = cell_pos * (r + elev + r * 0.005);
+        let arrow_len = base_len;
+        let local_end = local_start + dir * arrow_len;
+
+        let world_start = globe_transform.transform_point(local_start);
+        let world_end = globe_transform.transform_point(local_end);
+
+        // Голубой «вода-цвет», альфа растёт с мощностью реки.
+        let alpha = 0.35 + 0.55 * s;
+        let color = Color::srgb(1.0, 0.70 + 0.15 * s, 0.30 + 0.15 * s).with_alpha(alpha);
+
+        gizmos.arrow(world_start, world_end, color);
+    }
 }

@@ -90,6 +90,8 @@ pub fn simulate_hydrology(
 
     // Этап 4: Продовольственный потенциал, полезные ископаемые и биоресурсы
     compute_resources(topology, geology, climate, hydrology, config, seed);
+
+    rebuild_river_flow_cache(topology, hydrology, config);
 }
 
 /// Записывает обратную связь от биомов, влажности почвы и рек обратно в ClimateLayer
@@ -190,4 +192,59 @@ pub fn apply_surface_feedback_to_climate(
         // Влажность почвы повышает теплоёмкость (вода ≈4.2 vs сухая почва ≈0.8)
         climate.surface_heat_capacity[i] = (hc_base * (0.7 + 0.55 * sm)).clamp(0.08, 1.0);
     }
+}
+
+/// Перестраивает кэш 3D-стрелок течения по руслам рек.
+/// Вызывается при полном пересчёте гидрологии И при изменении river_threshold /
+/// river_width_scale (там, где ставится `pipeline.rebuild_rivers = true`).
+pub fn rebuild_river_flow_cache(
+    topology: &WorldTopology,
+    hydrology: &mut HydrologyLayer,
+    config: &HydrologyConfig,
+) {
+    let num_cells = topology.cells.len();
+    let threshold = config.river_threshold.max(1e-6);
+
+    // Нормируем по 90-му процентилю силы рек, чтобы одна мегарека не сделала
+    // все остальные стрелки микроскопическими.
+    let mut strengths: Vec<f32> = hydrology
+        .flow_accumulation
+        .iter()
+        .filter(|&&f| f >= threshold)
+        .map(|&f| f / threshold)
+        .collect();
+    strengths.sort_by(|a, b| a.total_cmp(b));
+    let max_strength = strengths
+        .get(((strengths.len() as f32) * 0.90) as usize)
+        .copied()
+        .unwrap_or(1.0)
+        .max(1.0);
+
+    let mut cache = Vec::with_capacity(strengths.len());
+
+    for i in 0..num_cells {
+        let flow = hydrology.flow_accumulation[i];
+        if flow < threshold {
+            continue;
+        }
+        let Some(k) = hydrology.flow_dir[i] else {
+            continue;
+        };
+        let n_id = topology.cells[i].neighbors[k as usize];
+        let cell_pos = topology.cells[i].center;
+        let nbr_pos = topology.cells[n_id].center;
+
+        // Проекция на касательную плоскость — направление «вниз по склону»
+        // строго вдоль поверхности сферы.
+        let raw = nbr_pos - cell_pos;
+        let dir = (raw - cell_pos * raw.dot(cell_pos)).normalize_or_zero();
+        if dir.length_squared() < 1e-6 {
+            continue;
+        }
+
+        let s = ((flow / threshold) / max_strength).clamp(0.0, 1.0).sqrt();
+        cache.push((i, dir, s));
+    }
+
+    hydrology.river_flow_arrows = cache;
 }
