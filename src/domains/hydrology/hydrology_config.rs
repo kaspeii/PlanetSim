@@ -39,6 +39,14 @@ pub struct HydrologyConfig {
     pub riparian_river_multiplier: f32,
     /// Максимальный уклон для образования болот (Wetland) на глинистых почвах
     pub wetland_max_slope: f32,
+
+    // --- ПАРАМЕТРЫ РЕСУРСОВ И АГРОПОТЕНЦИАЛА ---
+    /// Общий множитель продовольственной емкости (земледелие, скот, фрукты/дичь, рыба)
+    pub food_yield_multiplier: f32,
+    /// Частота и плотность залегания руд и минералов (1.0 — стандарт, >1.0 — больше жил)
+    pub mineral_density: f32,
+    /// Обилие стратегических биоресурсов (корабельный лес, волокна, лошади, пряности)
+    pub bio_resource_abundance: f32,
 }
 
 impl Default for HydrologyConfig {
@@ -61,6 +69,10 @@ impl Default for HydrologyConfig {
             soil_biome_influence: 0.55,
             riparian_river_multiplier: 2.2,
             wetland_max_slope: 0.009,
+
+            food_yield_multiplier: 1.0,
+            mineral_density: 1.0,
+            bio_resource_abundance: 1.0,
         }
     }
 }

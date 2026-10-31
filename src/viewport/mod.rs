@@ -18,7 +18,8 @@ use crate::{
             HydrologyConfig,
             hydrology_data::{Biome, HydrologyLayer},
             hydrology_palettes::{
-                biome_satellite_rgb, build_biome_colors, build_soil_colors,
+                biome_satellite_rgb, build_biome_colors, build_bio_resource_colors,
+                build_food_potential_colors, build_mineral_colors, build_soil_colors,
                 build_soil_moisture_colors,
             },
         },
@@ -71,6 +72,9 @@ pub enum MapOverlay {
     Soils,
     SoilMoisture,
     Biomes,
+    FoodPotential,
+    Minerals,
+    BioResources,
 }
 
 #[derive(Component)]
@@ -334,6 +338,9 @@ fn compute_overlay_colors(
         MapOverlay::Soils => build_soil_colors(hydrology),
         MapOverlay::SoilMoisture => build_soil_moisture_colors(geology, hydrology),
         MapOverlay::Biomes => build_biome_colors(hydrology),
+        MapOverlay::FoodPotential => build_food_potential_colors(geology, hydrology),
+        MapOverlay::Minerals => build_mineral_colors(geology, hydrology),
+        MapOverlay::BioResources => build_bio_resource_colors(geology, hydrology),
     }
 }
 

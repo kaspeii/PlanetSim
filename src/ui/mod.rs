@@ -582,6 +582,26 @@ fn render_ui_shell(world: &mut World) -> Result {
                         recolor |= ui
                             .radio_value(&mut *overlay, MapOverlay::Biomes, "Биомы")
                             .changed();
+                        recolor |= ui
+                            .radio_value(&mut *overlay, MapOverlay::Biomes, "Биомы")
+                            .changed();
+                        recolor |= ui
+                            .radio_value(
+                                &mut *overlay,
+                                MapOverlay::FoodPotential,
+                                "Продовольствие (Еда)",
+                            )
+                            .changed();
+                        recolor |= ui
+                            .radio_value(&mut *overlay, MapOverlay::Minerals, "Ископаемые (Руды)")
+                            .changed();
+                        recolor |= ui
+                            .radio_value(
+                                &mut *overlay,
+                                MapOverlay::BioResources,
+                                "Биоресурсы (Флора/Фауна)",
+                            )
+                            .changed();
                     });
 
                     ui.separator();

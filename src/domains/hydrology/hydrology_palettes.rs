@@ -1,6 +1,6 @@
 // src/domains/hydrology/hydrology_palettes.rs
 
-use super::hydrology_data::{Biome, HydrologyLayer, SoilType};
+use super::hydrology_data::{BioResource, Biome, HydrologyLayer, MineralResource, SoilType};
 use bevy::color::{Color, ColorToComponents};
 
 pub fn build_soil_moisture_colors(
@@ -122,4 +122,159 @@ pub fn biome_satellite_rgb(biome: Biome) -> (f32, f32, f32, f32) {
         Biome::Wetland => (0.18, 0.38, 0.30, 0.16),
         Biome::RiparianOasis => (0.18, 0.50, 0.22, 0.18),
     }
+}
+
+/// Композитная карта продовольствия (Земледелие / Скотоводство / Сады и дичь / Рыболовство)
+pub fn build_food_potential_colors(
+    geology: &crate::domains::tectonics::tectonics_data::GeologyLayer,
+    hydrology: &HydrologyLayer,
+) -> Vec<[f32; 4]> {
+    geology
+        .elevations
+        .iter()
+        .enumerate()
+        .map(|(i, &elev)| {
+            let fish = hydrology.fishery_potential.get(i).copied().unwrap_or(0.0);
+            if elev <= 0.0 {
+                // В океане показываем богатство рыбных промыслов (шельфы и апвеллинг)
+                let r = 0.04 + fish * 0.14;
+                let g = 0.12 + fish * 0.58;
+                let b = 0.26 + fish * 0.64;
+                return Color::srgb(r, g, b).to_linear().to_f32_array();
+            }
+
+            let arable = hydrology.arable_potential.get(i).copied().unwrap_or(0.0);
+            let pastoral = hydrology.pastoral_potential.get(i).copied().unwrap_or(0.0);
+            let foraging = hydrology.foraging_potential.get(i).copied().unwrap_or(0.0);
+
+            // Базовая бесплодная подложка (пустыня / ледник / скалы)
+            let base_r = 0.24;
+            let base_g = 0.22;
+            let base_b = 0.20;
+
+            // Arable -> Изумрудно-зеленый; Pastoral -> Золотисто-охристый; Foraging (Фрукты/Дичь) -> Ягодно-пурпурный/бирюзовый
+            let r = (base_r + pastoral * 0.68 + foraging * 0.32 - arable * 0.10).clamp(0.05, 1.0);
+            let g = (base_g + arable * 0.72 + pastoral * 0.38 + foraging * 0.20).clamp(0.05, 1.0);
+            let b = (base_b + foraging * 0.58 + fish * 0.35 - pastoral * 0.12).clamp(0.05, 1.0);
+
+            Color::srgb(r, g, b).to_linear().to_f32_array()
+        })
+        .collect()
+}
+
+/// Карта ископаемых ресурсов (15 типов минералов и энергоносителей)
+pub fn build_mineral_colors(
+    geology: &crate::domains::tectonics::tectonics_data::GeologyLayer,
+    hydrology: &HydrologyLayer,
+) -> Vec<[f32; 4]> {
+    geology
+        .elevations
+        .iter()
+        .enumerate()
+        .map(|(i, &elev)| {
+            let res = hydrology
+                .minerals
+                .get(i)
+                .copied()
+                .unwrap_or(MineralResource::None);
+            let richness = hydrology
+                .mineral_richness
+                .get(i)
+                .copied()
+                .unwrap_or(0.0)
+                .clamp(0.0, 1.0);
+
+            // Спокойная темно-серая подложка рельефа, чтобы месторождения ярко читались
+            let bg = if elev <= 0.0 {
+                [0.06, 0.11, 0.20]
+            } else {
+                let shade = (0.18 + elev.clamp(0.0, 0.5) * 0.25).clamp(0.16, 0.34);
+                [shade, shade * 0.98, shade * 0.95]
+            };
+
+            if res == MineralResource::None {
+                return Color::srgb(bg[0], bg[1], bg[2]).to_linear().to_f32_array();
+            }
+
+            let fg = match res {
+                MineralResource::None => bg,
+                MineralResource::Clay => [0.76, 0.48, 0.30],           // Терракотовый
+                MineralResource::StoneLimestone => [0.78, 0.80, 0.82], // Светло-мраморный
+                MineralResource::SilicaQuartz => [0.60, 0.88, 0.92],   // Кварцево-голубой
+                MineralResource::Salt => [0.96, 0.96, 1.00],           // Белоснежный
+                MineralResource::Copper => [0.90, 0.45, 0.15],         // Медно-рыжий
+                MineralResource::Tin => [0.55, 0.68, 0.78],            // Оловянно-сизый
+                MineralResource::Iron => [0.78, 0.18, 0.16],           // Ржаво-красный гематит
+                MineralResource::PreciousMetals => [1.00, 0.86, 0.12], // Ярко-золотой
+                MineralResource::SulfurNitre => [0.92, 0.95, 0.18],    // Серно-лимонный
+                MineralResource::Coal => [0.12, 0.12, 0.14],           // Антрацитово-черный
+                MineralResource::Hydrocarbons => [0.52, 0.12, 0.68],   // Нефтяной пурпурно-фиолетовый
+                MineralResource::Bauxite => [0.94, 0.36, 0.32],        // Бокситово-коралловый
+                MineralResource::AlloyMetals => [0.24, 0.52, 0.92],    // Кобальтово-синий (титан/никель)
+                MineralResource::Uranium => [0.18, 0.98, 0.28],        // Ураново-неоновый зеленый
+                MineralResource::RareEarths => [0.98, 0.18, 0.75],     // Ярко-маджентовый (РЗМ/литий)
+            };
+
+            let t = (0.45 + 0.55 * richness).clamp(0.0, 1.0);
+            let r = bg[0] * (1.0 - t) + fg[0] * t;
+            let g = bg[1] * (1.0 - t) + fg[1] * t;
+            let b = bg[2] * (1.0 - t) + fg[2] * t;
+            Color::srgb(r, g, b).to_linear().to_f32_array()
+        })
+        .collect()
+}
+
+/// Карта стратегических биоресурсов (Флора и Фауна, 9 типов)
+pub fn build_bio_resource_colors(
+    geology: &crate::domains::tectonics::tectonics_data::GeologyLayer,
+    hydrology: &HydrologyLayer,
+) -> Vec<[f32; 4]> {
+    geology
+        .elevations
+        .iter()
+        .enumerate()
+        .map(|(i, &elev)| {
+            let res = hydrology
+                .bio_resources
+                .get(i)
+                .copied()
+                .unwrap_or(BioResource::None);
+            let richness = hydrology
+                .bio_richness
+                .get(i)
+                .copied()
+                .unwrap_or(0.0)
+                .clamp(0.0, 1.0);
+
+            let bg = if elev <= 0.0 {
+                [0.06, 0.12, 0.22]
+            } else {
+                let shade = (0.20 + elev.clamp(0.0, 0.5) * 0.20).clamp(0.18, 0.32);
+                [shade * 0.95, shade, shade * 0.92]
+            };
+
+            if res == BioResource::None {
+                return Color::srgb(bg[0], bg[1], bg[2]).to_linear().to_f32_array();
+            }
+
+            let fg = match res {
+                BioResource::None => bg,
+                BioResource::NavalTimber => [0.08, 0.48, 0.22],    // Темно-изумрудный (корабельный лес)
+                BioResource::TimberFuel => [0.36, 0.58, 0.28],     // Спокойный лесной зеленый
+                BioResource::FiberCrops => [0.94, 0.94, 0.86],     // Хлопково-белый / льняной
+                BioResource::ResinRubber => [0.16, 0.78, 0.72],    // Смолисто-бирюзовый (каучук/смола)
+                BioResource::LuxuryFlora => [0.88, 0.20, 0.52],    // Пряно-карминовый (специи/чай/кофе)
+                BioResource::Horses => [0.82, 0.48, 0.16],         // Гнедой / рыже-каштановый (лошади)
+                BioResource::Camels => [0.94, 0.80, 0.36],         // Песочно-золотой (верблюды)
+                BioResource::ElephantsDraft => [0.56, 0.46, 0.68], // Сланцево-лиловый (слоны/вьючные)
+                BioResource::FurIvory => [0.68, 0.86, 0.98],       // Арктический голубой (пушнина/кость)
+            };
+
+            let t = (0.45 + 0.55 * richness).clamp(0.0, 1.0);
+            let r = bg[0] * (1.0 - t) + fg[0] * t;
+            let g = bg[1] * (1.0 - t) + fg[1] * t;
+            let b = bg[2] * (1.0 - t) + fg[2] * t;
+            Color::srgb(r, g, b).to_linear().to_f32_array()
+        })
+        .collect()
 }

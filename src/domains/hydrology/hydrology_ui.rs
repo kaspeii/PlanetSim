@@ -87,17 +87,32 @@ pub fn draw_hydrology_tab_system(
         egui::Slider::new(&mut config.wetland_max_slope, 0.002..=0.025).text("Уклон заболачивания"),
     );
 
-    ui.add_space(12.0);
-    if ui.button("Пересчитать почвы, реки и биомы").clicked() {
-        gen_req.request(PipelineStage::Hydrology);
-    }
+    ui.add_space(10.0);
+    ui.separator();
+    ui.label("4. Ресурсы и Агропотенциал:");
+
+    ui.add(
+        egui::Slider::new(&mut config.food_yield_multiplier, 0.3..=2.5)
+            .text("Продовольственная ёмкость"),
+    );
+    ui.add(
+        egui::Slider::new(&mut config.mineral_density, 0.3..=2.5)
+            .text("Плотность руд и ископаемых"),
+    );
+    ui.add(
+        egui::Slider::new(&mut config.bio_resource_abundance, 0.3..=2.5)
+            .text("Обилие биоресурсов и фауны"),
+    );
 
     if mesh_changed {
         pipeline.rebuild_rivers = true;
     }
 
     ui.add_space(12.0);
-    if ui.button("Пересчитать почвы и русла").clicked() {
+    if ui
+        .button("Пересчитать почвы, реки, биомы и ресурсы")
+        .clicked()
+    {
         gen_req.request(PipelineStage::Hydrology);
     }
 }

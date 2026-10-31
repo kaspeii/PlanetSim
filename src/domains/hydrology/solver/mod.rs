@@ -1,9 +1,11 @@
 // src/domains/hydrology/solver/mod.rs
 
 mod biomes;
+mod resources;
 mod rivers;
 mod soils;
 
+use resources::compute_resources;
 use noise::{Fbm, NoiseFn, Perlin};
 
 use super::{
@@ -85,6 +87,9 @@ pub fn simulate_hydrology(
 
     // Этап 3: Биомы (строятся по влажности почвы, климату и рельефу)
     compute_biomes(topology, geology, climate, hydrology, config, &noise);
+
+    // Этап 4: Продовольственный потенциал, полезные ископаемые и биоресурсы
+    compute_resources(topology, geology, climate, hydrology, config, seed);
 }
 
 /// Записывает обратную связь от биомов, влажности почвы и рек обратно в ClimateLayer
