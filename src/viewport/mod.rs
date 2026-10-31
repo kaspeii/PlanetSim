@@ -18,7 +18,7 @@ use crate::{
             HydrologyConfig,
             hydrology_data::{Biome, HydrologyLayer},
             hydrology_palettes::{
-                biome_satellite_rgb, build_biome_colors, build_bio_resource_colors,
+                biome_satellite_rgb, build_bio_resource_colors, build_biome_colors,
                 build_food_potential_colors, build_mineral_colors, build_soil_colors,
                 build_soil_moisture_colors,
             },

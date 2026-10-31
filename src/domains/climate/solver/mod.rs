@@ -167,14 +167,13 @@ impl SolverPrecalc {
 
             // Предрасчет синоптических волн в атмосфере
             let p = pos.as_dvec3() * 4.5;
-            synoptic_noise_a
-                .push(synoptic_perlin.get([p.x + 13.5, p.y + 27.1, p.z + 41.9]) as f32);
-            synoptic_noise_b
-                .push(synoptic_perlin.get([p.x - 53.2, p.y + 18.4, p.z - 29.7]) as f32);
-            pressure_wave_noise.push(
-                synoptic_perlin.get([p.x * 0.65 + 71.0, p.y * 0.65 - 33.0, p.z * 0.65 + 12.0])
-                    as f32,
-            );
+            synoptic_noise_a.push(synoptic_perlin.get([p.x + 13.5, p.y + 27.1, p.z + 41.9]) as f32);
+            synoptic_noise_b.push(synoptic_perlin.get([p.x - 53.2, p.y + 18.4, p.z - 29.7]) as f32);
+            pressure_wave_noise.push(synoptic_perlin.get([
+                p.x * 0.65 + 71.0,
+                p.y * 0.65 - 33.0,
+                p.z * 0.65 + 12.0,
+            ]) as f32);
 
             for &n_id in &cell.neighbors {
                 let raw = topology.cells[n_id].center - pos;
@@ -295,7 +294,8 @@ pub fn simulate_all_seasons(
         });
         s.spawn(|_| {
             simulate_single_season(
-                -1.0, topology, geology, cont, surf_alb, surf_wet, surf_hc, config, &precalc, winter,
+                -1.0, topology, geology, cont, surf_alb, surf_wet, surf_hc, config, &precalc,
+                winter,
             );
         });
     });

@@ -7,10 +7,10 @@ mod world;
 
 use bevy::prelude::*;
 use domains::DomainsPlugin;
+use thread_priority::{ThreadPriority, set_current_thread_priority};
 use ui::UiPlugin;
 use viewport::ViewportPlugin;
 use world::WorldPlugin;
-use thread_priority::{ThreadPriority, set_current_thread_priority};
 
 fn main() {
     let total_threads = std::thread::available_parallelism()
@@ -29,7 +29,7 @@ fn main() {
             let _ = set_current_thread_priority(ThreadPriority::Min);
         })
         .build_global();
-    
+
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins((WorldPlugin, DomainsPlugin, ViewportPlugin, UiPlugin))

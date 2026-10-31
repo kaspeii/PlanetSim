@@ -50,7 +50,8 @@ pub(super) fn compute_resources(
             )
         {
             let p = topology.cells[i].center.as_dvec3();
-            let v_gold = ore_fbm.get([p.x * 18.0 + 11.2, p.y * 18.0 - 34.5, p.z * 18.0 + 7.8]) as f32;
+            let v_gold =
+                ore_fbm.get([p.x * 18.0 + 11.2, p.y * 18.0 - 34.5, p.z * 18.0 + 7.8]) as f32;
             if v_gold > 0.28 {
                 has_upland_vein[i] = true;
             }
@@ -94,13 +95,31 @@ pub(super) fn compute_resources(
         let p = topology.cells[i].center.as_dvec3();
 
         // Независимые гармоники 3D-шума (в диапазоне [0.0 .. 1.0]) для разных типов руд
-        let n_ore_a = (ore_fbm.get([p.x * 14.0 + 19.1, p.y * 14.0 - 41.3, p.z * 14.0 + 23.7]) as f32 * 0.65 + 0.5).clamp(0.0, 1.0);
-        let n_ore_b = (ore_fbm.get([p.x * 16.0 - 52.4, p.y * 16.0 + 13.8, p.z * 16.0 - 39.2]) as f32 * 0.65 + 0.5).clamp(0.0, 1.0);
-        let n_ore_c = (ore_fbm.get([p.x * 19.0 + 73.6, p.y * 19.0 + 28.9, p.z * 19.0 - 61.5]) as f32 * 0.65 + 0.5).clamp(0.0, 1.0);
-        let n_basin = (ore_fbm.get([p.x * 7.5 - 15.2, p.y * 7.5 + 64.1, p.z * 7.5 + 33.8]) as f32 * 0.65 + 0.5).clamp(0.0, 1.0);
+        let n_ore_a =
+            (ore_fbm.get([p.x * 14.0 + 19.1, p.y * 14.0 - 41.3, p.z * 14.0 + 23.7]) as f32 * 0.65
+                + 0.5)
+                .clamp(0.0, 1.0);
+        let n_ore_b =
+            (ore_fbm.get([p.x * 16.0 - 52.4, p.y * 16.0 + 13.8, p.z * 16.0 - 39.2]) as f32 * 0.65
+                + 0.5)
+                .clamp(0.0, 1.0);
+        let n_ore_c =
+            (ore_fbm.get([p.x * 19.0 + 73.6, p.y * 19.0 + 28.9, p.z * 19.0 - 61.5]) as f32 * 0.65
+                + 0.5)
+                .clamp(0.0, 1.0);
+        let n_basin = (ore_fbm.get([p.x * 7.5 - 15.2, p.y * 7.5 + 64.1, p.z * 7.5 + 33.8]) as f32
+            * 0.65
+            + 0.5)
+            .clamp(0.0, 1.0);
 
-        let n_bio_a = (bio_fbm.get([p.x * 10.0 + 31.4, p.y * 10.0 - 18.7, p.z * 10.0 + 52.1]) as f32 * 0.65 + 0.5).clamp(0.0, 1.0);
-        let n_bio_b = (bio_fbm.get([p.x * 13.5 - 44.9, p.y * 13.5 + 27.3, p.z * 13.5 - 16.4]) as f32 * 0.65 + 0.5).clamp(0.0, 1.0);
+        let n_bio_a =
+            (bio_fbm.get([p.x * 10.0 + 31.4, p.y * 10.0 - 18.7, p.z * 10.0 + 52.1]) as f32 * 0.65
+                + 0.5)
+                .clamp(0.0, 1.0);
+        let n_bio_b =
+            (bio_fbm.get([p.x * 13.5 - 44.9, p.y * 13.5 + 27.3, p.z * 13.5 - 16.4]) as f32 * 0.65
+                + 0.5)
+                .clamp(0.0, 1.0);
 
         // =========================================================================
         // 1. ОКЕАН И МОРСКОЕ ДНО
@@ -117,17 +136,23 @@ pub(super) fn compute_resources(
                 let shelf_factor = smoothstep(-0.14, -0.005, elev);
                 let current_speed = climate.spring.ocean_currents[i].length();
                 let upwelling_bonus = (current_speed * 0.45).clamp(0.0, 0.35);
-                let temp_opt = smoothstep(-2.0, 8.0, mean_temp) * (1.0 - smoothstep(24.0, 32.0, mean_temp) * 0.25);
+                let temp_opt = smoothstep(-2.0, 8.0, mean_temp)
+                    * (1.0 - smoothstep(24.0, 32.0, mean_temp) * 0.25);
                 let coast_bonus = if near_coast { 0.20 } else { 0.0 };
 
                 hydrology.fishery_potential[i] =
-                    ((0.12 + shelf_factor * 0.58 + upwelling_bonus + coast_bonus) * temp_opt * food_mult)
+                    ((0.12 + shelf_factor * 0.58 + upwelling_bonus + coast_bonus)
+                        * temp_opt
+                        * food_mult)
                         .clamp(0.0, 1.0);
             }
 
             // Шельфовые углеводороды (нефть и газ) на пассивных окраинах и карбонатных банках
             if elev > -0.12
-                && matches!(rock, RockType::ShaleClay | RockType::Limestone | RockType::Sandstone)
+                && matches!(
+                    rock,
+                    RockType::ShaleClay | RockType::Limestone | RockType::Sandstone
+                )
                 && n_basin > ore_cutoff + 0.08
             {
                 hydrology.minerals[i] = MineralResource::Hydrocarbons;
@@ -138,7 +163,9 @@ pub(super) fn compute_resources(
             }
 
             // Китобойный и зверобойный промысел в холодных морях у кромки льдов
-            if (biome == Biome::SeaIce || (mean_temp < 4.0 && elev > -0.15)) && n_bio_a > bio_cutoff + 0.12 {
+            if (biome == Biome::SeaIce || (mean_temp < 4.0 && elev > -0.15))
+                && n_bio_a > bio_cutoff + 0.12
+            {
                 hydrology.bio_resources[i] = BioResource::FurIvory;
                 hydrology.bio_richness[i] = ((n_bio_a - bio_cutoff) * 1.6).clamp(0.2, 1.0);
             } else {
@@ -159,7 +186,7 @@ pub(super) fn compute_resources(
             SoilType::Cambisol => 0.78,
             SoilType::Gleysol => 0.76, // Плодородный речной аллювий (при осушении/ирригации)
             SoilType::Laterite => 0.42, // Быстро истощается без удобрений, но дает рис в долинах
-            SoilType::Podzol => 0.32,   // Кислая почва (рожь, овес, ячмень)
+            SoilType::Podzol => 0.32,  // Кислая почва (рожь, овес, ячмень)
             SoilType::Aridisol => 0.25, // Требует речного орошения
             SoilType::Gelisol | SoilType::Leptosol | SoilType::Ocean => 0.04,
         };
@@ -210,11 +237,11 @@ pub(super) fn compute_resources(
             Biome::RiparianOasis => 0.88,      // Финики, гранаты, водоплавающая дичь
             Biome::TemperateDeciduousForest => 0.80, // Яблоки, груши, орехи, грибы, олени, кабаны
             Biome::TemperateRainforest => 0.72, // Ягоды, орехи, лососевые реки
-            Biome::Savanna => 0.64,            // Крупная дичь, корнеплоды, баобабы (колыбель антропогенеза)
-            Biome::Wetland => 0.58,            // Дикий рис, клюква, птица
-            Biome::BorealTaiga => 0.48,        // Кедровый орех, брусника, лесная дичь
+            Biome::Savanna => 0.64, // Крупная дичь, корнеплоды, баобабы (колыбель антропогенеза)
+            Biome::Wetland => 0.58, // Дикий рис, клюква, птица
+            Biome::BorealTaiga => 0.48, // Кедровый орех, брусника, лесная дичь
             Biome::TemperateGrassland | Biome::XericShrubland => 0.34,
-            Biome::Tundra => 0.24,             // Морошка, северная дичь
+            Biome::Tundra => 0.24, // Морошка, северная дичь
             _ => 0.05,
         };
         let microclimate_bonus = smoothstep(-8.0, 14.0, mean_temp) * (0.5 + 0.5 * sm);
@@ -257,7 +284,9 @@ pub(super) fn compute_resources(
         // 2. Строительный камень и Известняк (StoneLimestone): карбонатные платформы и скальные выходы
         let stone_score = match rock {
             RockType::Limestone => 0.62 + 0.38 * n_ore_b,
-            RockType::Granite | RockType::Sandstone if soil == SoilType::Leptosol || max_slope > 0.025 => {
+            RockType::Granite | RockType::Sandstone
+                if soil == SoilType::Leptosol || max_slope > 0.025 =>
+            {
                 0.52 + 0.40 * n_ore_b
             }
             _ => 0.0,
@@ -311,8 +340,10 @@ pub(super) fn compute_resources(
         consider_mineral(MineralResource::Iron, iron_score);
 
         // 8. Золото и Серебро (PreciousMetals): коренные жилы в горах + аллювиальные россыпи в реках ниже гор
-        let gold_vein = if matches!(rock, RockType::Granite | RockType::Andesite | RockType::GneissSchist)
-            && elev > 0.10
+        let gold_vein = if matches!(
+            rock,
+            RockType::Granite | RockType::Andesite | RockType::GneissSchist
+        ) && elev > 0.10
         {
             0.68 * n_ore_c.powf(1.3)
         } else {
@@ -336,7 +367,8 @@ pub(super) fn compute_resources(
         consider_mineral(MineralResource::SulfurNitre, sulfur_score);
 
         // 10. Каменный уголь (Coal): осадочные бассейны песчаников и аргиллитов + торфяники
-        let coal_score = if matches!(rock, RockType::Sandstone | RockType::ShaleClay) && elev < 0.16 {
+        let coal_score = if matches!(rock, RockType::Sandstone | RockType::ShaleClay) && elev < 0.16
+        {
             0.74 * n_basin * n_ore_b
         } else if biome == Biome::Wetland {
             0.62 * n_basin
@@ -346,8 +378,10 @@ pub(super) fn compute_resources(
         consider_mineral(MineralResource::Coal, coal_score);
 
         // 11. Нефть и Природный газ (Hydrocarbons): глубокие осадочные прогибы низменностей и предгорий
-        let oil_score = if matches!(rock, RockType::ShaleClay | RockType::Limestone | RockType::Sandstone)
-            && elev < 0.095
+        let oil_score = if matches!(
+            rock,
+            RockType::ShaleClay | RockType::Limestone | RockType::Sandstone
+        ) && elev < 0.095
             && max_slope < 0.016
         {
             0.80 * n_basin.powf(1.15) * n_ore_c
@@ -359,7 +393,13 @@ pub(super) fn compute_resources(
         // 12. Бокситы / Алюминий (Bauxite): латеритные коры выветривания влажных тропиков
         let bauxite_score = if soil == SoilType::Laterite {
             0.82 * n_ore_a
-        } else if mean_temp > 20.0 && sm > 0.55 && matches!(rock, RockType::FloodBasalt | RockType::Andesite | RockType::ShaleClay) {
+        } else if mean_temp > 20.0
+            && sm > 0.55
+            && matches!(
+                rock,
+                RockType::FloodBasalt | RockType::Andesite | RockType::ShaleClay
+            )
+        {
             0.66 * n_ore_a
         } else {
             0.0
@@ -421,7 +461,10 @@ pub(super) fn compute_resources(
                 // Корабельная сосна/лиственница, сосновая смола/дёготь и ценная пушнина
                 consider_bio(BioResource::NavalTimber, (0.55 + 0.35 * sm) * n_bio_a);
                 consider_bio(BioResource::ResinRubber, 0.78 * n_bio_b);
-                consider_bio(BioResource::FurIvory, (0.72 + (-mean_temp).max(0.0) * 0.015) * (1.0 - n_bio_a * 0.5));
+                consider_bio(
+                    BioResource::FurIvory,
+                    (0.72 + (-mean_temp).max(0.0) * 0.015) * (1.0 - n_bio_a * 0.5),
+                );
                 consider_bio(BioResource::TimberFuel, 0.52);
             }
             Biome::TemperateDeciduousForest | Biome::TemperateRainforest => {

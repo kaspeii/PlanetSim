@@ -198,21 +198,21 @@ pub fn build_mineral_colors(
 
             let fg = match res {
                 MineralResource::None => bg,
-                MineralResource::Clay => [0.76, 0.48, 0.30],           // Терракотовый
+                MineralResource::Clay => [0.76, 0.48, 0.30], // Терракотовый
                 MineralResource::StoneLimestone => [0.78, 0.80, 0.82], // Светло-мраморный
-                MineralResource::SilicaQuartz => [0.60, 0.88, 0.92],   // Кварцево-голубой
-                MineralResource::Salt => [0.96, 0.96, 1.00],           // Белоснежный
-                MineralResource::Copper => [0.90, 0.45, 0.15],         // Медно-рыжий
-                MineralResource::Tin => [0.55, 0.68, 0.78],            // Оловянно-сизый
-                MineralResource::Iron => [0.78, 0.18, 0.16],           // Ржаво-красный гематит
+                MineralResource::SilicaQuartz => [0.60, 0.88, 0.92], // Кварцево-голубой
+                MineralResource::Salt => [0.96, 0.96, 1.00], // Белоснежный
+                MineralResource::Copper => [0.90, 0.45, 0.15], // Медно-рыжий
+                MineralResource::Tin => [0.55, 0.68, 0.78],  // Оловянно-сизый
+                MineralResource::Iron => [0.78, 0.18, 0.16], // Ржаво-красный гематит
                 MineralResource::PreciousMetals => [1.00, 0.86, 0.12], // Ярко-золотой
-                MineralResource::SulfurNitre => [0.92, 0.95, 0.18],    // Серно-лимонный
-                MineralResource::Coal => [0.12, 0.12, 0.14],           // Антрацитово-черный
-                MineralResource::Hydrocarbons => [0.52, 0.12, 0.68],   // Нефтяной пурпурно-фиолетовый
-                MineralResource::Bauxite => [0.94, 0.36, 0.32],        // Бокситово-коралловый
-                MineralResource::AlloyMetals => [0.24, 0.52, 0.92],    // Кобальтово-синий (титан/никель)
-                MineralResource::Uranium => [0.18, 0.98, 0.28],        // Ураново-неоновый зеленый
-                MineralResource::RareEarths => [0.98, 0.18, 0.75],     // Ярко-маджентовый (РЗМ/литий)
+                MineralResource::SulfurNitre => [0.92, 0.95, 0.18], // Серно-лимонный
+                MineralResource::Coal => [0.12, 0.12, 0.14], // Антрацитово-черный
+                MineralResource::Hydrocarbons => [0.52, 0.12, 0.68], // Нефтяной пурпурно-фиолетовый
+                MineralResource::Bauxite => [0.94, 0.36, 0.32], // Бокситово-коралловый
+                MineralResource::AlloyMetals => [0.24, 0.52, 0.92], // Кобальтово-синий (титан/никель)
+                MineralResource::Uranium => [0.18, 0.98, 0.28],     // Ураново-неоновый зеленый
+                MineralResource::RareEarths => [0.98, 0.18, 0.75],  // Ярко-маджентовый (РЗМ/литий)
             };
 
             let t = (0.45 + 0.55 * richness).clamp(0.0, 1.0);
@@ -259,15 +259,15 @@ pub fn build_bio_resource_colors(
 
             let fg = match res {
                 BioResource::None => bg,
-                BioResource::NavalTimber => [0.08, 0.48, 0.22],    // Темно-изумрудный (корабельный лес)
-                BioResource::TimberFuel => [0.36, 0.58, 0.28],     // Спокойный лесной зеленый
-                BioResource::FiberCrops => [0.94, 0.94, 0.86],     // Хлопково-белый / льняной
-                BioResource::ResinRubber => [0.16, 0.78, 0.72],    // Смолисто-бирюзовый (каучук/смола)
-                BioResource::LuxuryFlora => [0.88, 0.20, 0.52],    // Пряно-карминовый (специи/чай/кофе)
-                BioResource::Horses => [0.82, 0.48, 0.16],         // Гнедой / рыже-каштановый (лошади)
-                BioResource::Camels => [0.94, 0.80, 0.36],         // Песочно-золотой (верблюды)
+                BioResource::NavalTimber => [0.08, 0.48, 0.22], // Темно-изумрудный (корабельный лес)
+                BioResource::TimberFuel => [0.36, 0.58, 0.28],  // Спокойный лесной зеленый
+                BioResource::FiberCrops => [0.94, 0.94, 0.86],  // Хлопково-белый / льняной
+                BioResource::ResinRubber => [0.16, 0.78, 0.72], // Смолисто-бирюзовый (каучук/смола)
+                BioResource::LuxuryFlora => [0.88, 0.20, 0.52], // Пряно-карминовый (специи/чай/кофе)
+                BioResource::Horses => [0.82, 0.48, 0.16],      // Гнедой / рыже-каштановый (лошади)
+                BioResource::Camels => [0.94, 0.80, 0.36],      // Песочно-золотой (верблюды)
                 BioResource::ElephantsDraft => [0.56, 0.46, 0.68], // Сланцево-лиловый (слоны/вьючные)
-                BioResource::FurIvory => [0.68, 0.86, 0.98],       // Арктический голубой (пушнина/кость)
+                BioResource::FurIvory => [0.68, 0.86, 0.98], // Арктический голубой (пушнина/кость)
             };
 
             let t = (0.45 + 0.55 * richness).clamp(0.0, 1.0);

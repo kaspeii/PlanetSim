@@ -5,8 +5,8 @@ mod resources;
 mod rivers;
 mod soils;
 
-use resources::compute_resources;
 use noise::{Fbm, NoiseFn, Perlin};
+use resources::compute_resources;
 
 use super::{
     hydrology_config::HydrologyConfig,

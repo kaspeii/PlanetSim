@@ -738,9 +738,7 @@ fn render_ui_shell(world: &mut World) -> Result {
                                 if ui
                                     .add_sized(
                                         [ui.available_width(), 34.0],
-                                        egui::Button::new(
-                                            "🔄 Перегенерировать с введённым сидом",
-                                        ),
+                                        egui::Button::new("🔄 Перегенерировать с введённым сидом"),
                                     )
                                     .clicked()
                                 {
