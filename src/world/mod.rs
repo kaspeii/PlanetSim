@@ -19,6 +19,8 @@ use crate::domains::{
 pub struct WorldConfig {
     /// Радиус планеты в мировых координатах (live, применяется к текущей планете)
     pub radius: f32,
+    /// Радиус, под который откалиброваны генераторы высот (tectonics / hydrology).
+    pub reference_radius: f32,
     /// Размерность, с которой будет создана СЛЕДУЮЩАЯ планета.
     /// Размерность ТЕКУЩЕЙ планеты хранится в `WorldTopology.subdivisions`.
     pub next_planet_subdivisions: u32,
@@ -31,6 +33,7 @@ impl Default for WorldConfig {
         let mut rng = rand::rng();
         Self {
             radius: 5.0,                 // release - 7
+            reference_radius: 7.0,
             next_planet_subdivisions: 7, // release - 8
             seed: rng.random_range(0..=u32::MAX),
         }
@@ -40,6 +43,12 @@ impl Default for WorldConfig {
 impl WorldConfig {
     pub fn randomize_seed(&mut self) {
         self.seed = rand::rng().random_range(0..=u32::MAX);
+    }
+
+    /// Множитель рельефа. Обеспечивает пропорциональность высот радиусу планеты.
+    #[inline]
+    pub fn height_scale(&self) -> f32 {
+        self.radius / self.reference_radius
     }
 }
 

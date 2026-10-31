@@ -241,6 +241,8 @@ fn sync_viewport_mesh(
     // Освобождаем старые меши с прошлого кадра, когда расширение GPU-буфера уже завершено
     deferred_mesh_drops.clear();
 
+    let height_scale = world_config.height_scale();
+
     if let Ok((_, mut river_vis)) = river_query.single_mut() {
         let target_vis = if view_config.show_rivers && !hydrology.flow_accumulation.is_empty() {
             Visibility::Inherited
@@ -275,6 +277,7 @@ fn sync_viewport_mesh(
                 flatten_water,
                 &colors,
                 world_config.radius,
+                height_scale,
             );
             deferred_mesh_drops.push(mesh_handle.0.clone());
             mesh_handle.0 = meshes.add(new_mesh);
@@ -285,6 +288,7 @@ fn sync_viewport_mesh(
                     &geology.elevations,
                     flatten_water,
                     world_config.radius,
+                    height_scale,
                 );
                 mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, new_positions);
             }
@@ -307,6 +311,7 @@ fn sync_viewport_mesh(
                 &hydrology_config,
                 view_config.flat_water,
                 world_config.radius,
+                height_scale,
             );
             deferred_mesh_drops.push(river_mesh_handle.0.clone());
             river_mesh_handle.0 = meshes.add(new_river_mesh);
