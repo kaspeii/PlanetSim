@@ -3,6 +3,7 @@
 pub mod pipeline;
 pub mod states;
 pub mod topology;
+pub mod world_ui;
 
 use bevy::prelude::*;
 use pipeline::{PipelineSet, PipelineStage, WorldPipeline};

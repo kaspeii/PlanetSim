@@ -18,6 +18,15 @@ pub fn draw_hydrology_tab_system(
     ui.heading("Почвы и Гидрология");
     ui.separator();
 
+    let regen_btn = ui.add_sized(
+        [ui.available_width(), 40.0],
+        egui::Button::new("Пересчитать почвы, реки, биомы и ресурсы"),
+    );
+    if regen_btn.clicked() {
+        gen_req.request(PipelineStage::Hydrology);
+    }
+
+    ui.separator();
     ui.label("1. Модель почв (CLORPT):");
     ui.add(
         egui::Slider::new(&mut config.chemical_weathering_rate, 0.0..=1.2)
@@ -106,13 +115,5 @@ pub fn draw_hydrology_tab_system(
 
     if mesh_changed {
         pipeline.rebuild_rivers = true;
-    }
-
-    ui.add_space(12.0);
-    if ui
-        .button("Пересчитать почвы, реки, биомы и ресурсы")
-        .clicked()
-    {
-        gen_req.request(PipelineStage::Hydrology);
     }
 }
