@@ -7,6 +7,7 @@ pub mod palettes;
 
 use crate::{
     domains::{
+        civilization::{CivilizationConfig, CivilizationLayer, SocLayerKind, civ_palettes::build_civ_layer_colors},
         climate::{
             climate_data::ClimateLayer,
             climate_palettes::{
@@ -78,6 +79,13 @@ pub enum MapOverlay {
     Minerals,
     BioResources,
     Ruggedness,
+    CivSpecies,
+    CivKinship,
+    CivCulture,
+    CivReligion,
+    CivEconomy,
+    CivPolity,
+    CivKnowledge,
 }
 
 #[derive(Component)]
@@ -188,6 +196,8 @@ fn sync_viewport_mesh(
     climate: Res<ClimateLayer>,
     hydrology: Res<HydrologyLayer>,
     hydrology_config: Res<HydrologyConfig>,
+    civ: Res<CivilizationLayer>,
+    civ_config: Res<CivilizationConfig>,
     overlay: Res<MapOverlay>,
     view_config: Res<ViewportViewConfig>,
     mut globe_query: Query<&mut Mesh3d, (With<Globe>, Without<RiverOverlayMesh>)>,
@@ -231,7 +241,7 @@ fn sync_viewport_mesh(
         let flatten_water = view_config.flat_water;
 
         if pipeline.rebuild_mesh {
-            let colors = compute_overlay_colors(&overlay, &geology, &climate, &hydrology);
+            let colors = compute_overlay_colors(&overlay, &geology, &climate, &hydrology, &civ, &civ_config);
             let new_mesh = build_globe_mesh(
                 &topology,
                 &geology.elevations,
@@ -255,7 +265,7 @@ fn sync_viewport_mesh(
             }
 
             if pipeline.recolor_mesh {
-                let colors = compute_overlay_colors(&overlay, &geology, &climate, &hydrology);
+                let colors = compute_overlay_colors(&overlay, &geology, &climate, &hydrology, &civ, &civ_config);
                 let vertex_colors = recolor_globe_mesh(&topology, &geology.elevations, &colors);
                 mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vertex_colors);
             }
@@ -290,6 +300,8 @@ fn compute_overlay_colors(
     geology: &GeologyLayer,
     climate: &ClimateLayer,
     hydrology: &HydrologyLayer,
+    civ: &CivilizationLayer, 
+    civ_config: &CivilizationConfig,
 ) -> Vec<[f32; 4]> {
     match *overlay {
         MapOverlay::SpaceView => build_space_colors(geology, climate, hydrology),
@@ -310,6 +322,27 @@ fn compute_overlay_colors(
         MapOverlay::FoodPotential => build_food_potential_colors(geology, hydrology),
         MapOverlay::Minerals => build_mineral_colors(geology, hydrology),
         MapOverlay::BioResources => build_bio_resource_colors(geology, hydrology),
+        MapOverlay::CivSpecies => {
+            build_civ_layer_colors(geology, civ, civ_config, SocLayerKind::Species)
+        }
+        MapOverlay::CivKinship => {
+            build_civ_layer_colors(geology, civ, civ_config, SocLayerKind::Kinship)
+        }
+        MapOverlay::CivCulture => {
+            build_civ_layer_colors(geology, civ, civ_config, SocLayerKind::Culture)
+        }
+        MapOverlay::CivReligion => {
+            build_civ_layer_colors(geology, civ, civ_config, SocLayerKind::Religion)
+        }
+        MapOverlay::CivEconomy => {
+            build_civ_layer_colors(geology, civ, civ_config, SocLayerKind::Economy)
+        }
+        MapOverlay::CivPolity => {
+            build_civ_layer_colors(geology, civ, civ_config, SocLayerKind::Polity)
+        }
+        MapOverlay::CivKnowledge => {
+            build_civ_layer_colors(geology, civ, civ_config, SocLayerKind::Knowledge)
+        }
     }
 }
 

@@ -39,7 +39,14 @@ pub fn hotkey_controls(
             MapOverlay::Biomes => MapOverlay::FoodPotential,
             MapOverlay::FoodPotential => MapOverlay::Minerals,
             MapOverlay::Minerals => MapOverlay::BioResources,
-            MapOverlay::BioResources => MapOverlay::SpaceView,
+            MapOverlay::BioResources => MapOverlay::CivSpecies,
+            MapOverlay::CivSpecies => MapOverlay::CivKinship,
+            MapOverlay::CivKinship => MapOverlay::CivCulture,
+            MapOverlay::CivCulture => MapOverlay::CivReligion,
+            MapOverlay::CivReligion => MapOverlay::CivEconomy,
+            MapOverlay::CivEconomy => MapOverlay::CivPolity,
+            MapOverlay::CivPolity => MapOverlay::CivKnowledge,
+            MapOverlay::CivKnowledge => MapOverlay::SpaceView,
         };
         let is_space = *overlay == MapOverlay::SpaceView;
 

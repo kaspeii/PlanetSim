@@ -14,7 +14,8 @@ use std::{
 
 use crate::{
     domains::{
-        climate::{ClimateConfig, climate_data::ClimateLayer, simulate_all_seasons},
+        civilization::{CivilizationLayer, prepare_civilization_substrate},
+        climate::{ClimateConfig, ClimateLayer, simulate_all_seasons},
         hydrology::{
             HydrologyConfig, HydrologyLayer, apply_surface_feedback_to_climate, simulate_hydrology,
         },
@@ -182,10 +183,10 @@ pub fn spawn_generation_task(
     existing_tasks: Query<Entity, With<GenerationTask>>,
     world_config: Res<WorldConfig>,
     topology: Res<WorldTopology>,
-    geology_res: Res<GeologyLayer>,
+    geology: Res<GeologyLayer>,
     t_config: Res<TectonicsConfig>,
     c_config: Res<ClimateConfig>,
-    climate_res: Res<ClimateLayer>,
+    climate: Res<ClimateLayer>,
     h_config: Res<HydrologyConfig>,
 ) {
     let Some(stage) = req.0.take() else {
@@ -198,7 +199,7 @@ pub fn spawn_generation_task(
         commands.entity(entity).despawn();
     }
 
-    let is_initial = geology_res.elevations.is_empty();
+    let is_initial = geology.elevations.is_empty();
     let seed = world_config.seed;
 
     let thread_pool = AsyncComputeTaskPool::get();
@@ -208,13 +209,13 @@ pub fn spawn_generation_task(
     let h_config = (*h_config).clone();
 
     let existing_geology = if stage > PipelineStage::Tectonics {
-        Some((*geology_res).clone())
+        Some((*geology).clone())
     } else {
         None
     };
 
     let existing_climate = if stage > PipelineStage::Climate {
-        Some((*climate_res).clone())
+        Some((*climate).clone())
     } else {
         None
     };
@@ -380,10 +381,13 @@ pub fn spawn_generation_task(
 pub fn handle_generation_task(
     mut commands: Commands,
     mut task_query: Query<(Entity, &mut GenerationTask)>,
-    mut geology_res: ResMut<GeologyLayer>,
-    mut climate_res: ResMut<ClimateLayer>,
-    mut hydrology_res: ResMut<HydrologyLayer>,
+    mut geology: ResMut<GeologyLayer>,
+    mut climate: ResMut<ClimateLayer>,
+    mut hydrology: ResMut<HydrologyLayer>,
+    mut civ: ResMut<CivilizationLayer>,
     mut pipeline: ResMut<WorldPipeline>,
+    topology: Res<WorldTopology>,
+    world_config: Res<WorldConfig>,
 ) {
     let Some((entity, mut gen_task)) = task_query.iter_mut().next() else {
         return;
@@ -394,16 +398,18 @@ pub fn handle_generation_task(
             future::block_on(future::poll_once(task))
         {
             if let Some(gen_geology) = opt_geology {
-                *geology_res = gen_geology;
+                *geology = gen_geology;
                 pipeline.rebuild_mesh = true;
             } else {
                 pipeline.recolor_mesh = true;
             }
             if let Some(gen_climate) = opt_climate {
-                *climate_res = gen_climate;
+                *climate = gen_climate;
             }
-            *hydrology_res = gen_hydrology;
+            *hydrology = gen_hydrology;
             pipeline.rebuild_rivers = true;
+
+            prepare_civilization_substrate(&topology, &geology, &climate, &hydrology, &mut civ, world_config.seed);
 
             // Фиксируем окончание в логгере и освобождаем Task
             gen_task.logger.finish();

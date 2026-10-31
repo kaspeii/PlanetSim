@@ -1,12 +1,13 @@
 // src/domains/mod.rs
 
-pub mod tectonics;
 pub mod climate;
 pub mod hydrology;
+pub mod tectonics;
+pub mod civilization;
 
 pub mod generator;
-pub mod save;
 pub mod palettes;
+pub mod save;
 
 use bevy::prelude::*;
 use generator::{GenerationRequest, handle_generation_task, spawn_generation_task};
@@ -22,6 +23,7 @@ impl Plugin for DomainsPlugin {
                 tectonics::TectonicsPlugin,
                 climate::ClimatePlugin,
                 hydrology::HydrologyPlugin,
+                civilization::CivilizationPlugin,
             ))
             .add_systems(Startup, warmup_gizmos_shader)
             .add_systems(

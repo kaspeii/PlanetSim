@@ -5,6 +5,10 @@ use bevy_egui::{EguiContext, egui};
 
 use crate::{
     domains::{
+        civilization::civ_palettes::{
+            civ_culture_legend, civ_economy_legend, civ_kinship_legend, civ_knowledge_legend,
+            civ_polity_legend, civ_religion_legend, civ_species_legend,
+        },
         climate::climate_palettes::{
             albedo_legend, continentality_legend, humidity_legend, precipitation_legend,
             pressure_legend, temperature_legend, wind_legend,
@@ -324,6 +328,13 @@ fn draw_legend_for(ui: &mut egui::Ui, overlay: &MapOverlay) {
         MapOverlay::FoodPotential   => food_potential_legend(),
         MapOverlay::Minerals        => minerals_legend(),
         MapOverlay::BioResources    => bio_resources_legend(),
+        MapOverlay::CivSpecies      => civ_species_legend(),
+        MapOverlay::CivKinship      => civ_kinship_legend(),
+        MapOverlay::CivCulture      => civ_culture_legend(),
+        MapOverlay::CivReligion     => civ_religion_legend(),
+        MapOverlay::CivEconomy      => civ_economy_legend(),
+        MapOverlay::CivPolity       => civ_polity_legend(),
+        MapOverlay::CivKnowledge    => civ_knowledge_legend(),
     };
     draw_legend(ui, &legend);
 }

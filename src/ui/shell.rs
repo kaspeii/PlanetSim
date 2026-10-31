@@ -5,6 +5,7 @@ use bevy_egui::{EguiContext, egui};
 
 use crate::{
     domains::{
+        civilization::civ_ui::draw_civilization_tab_system,
         climate::climate_ui::draw_climate_tab_system,
         generator::GenerationTask,
         hydrology::hydrology_ui::draw_hydrology_tab_system,
@@ -40,6 +41,13 @@ const LAYERS: &[(MapOverlay, &str)] = &[
     (MapOverlay::FoodPotential, "Продовольствие"),
     (MapOverlay::Minerals, "Ископаемые"),
     (MapOverlay::BioResources, "Биоресурсы"),
+    (MapOverlay::CivSpecies, "Институт: Расы"),
+    (MapOverlay::CivKinship, "Институт: Кланы"),
+    (MapOverlay::CivCulture, "Институт: Культуры"),
+    (MapOverlay::CivReligion, "Институт: Религии"),
+    (MapOverlay::CivEconomy, "Институт: Рынки"),
+    (MapOverlay::CivPolity, "Институт: Государства"),
+    (MapOverlay::CivKnowledge, "Институт: Наука"),
 ];
 
 #[derive(Resource, Clone, Copy, Debug)]
@@ -222,50 +230,52 @@ fn draw_left_panel(ui: &mut egui::Ui, world: &mut World) -> egui::Rect {
         .default_size(200.0)
         .show(ui, |ui| {
             panel_rect = ui.max_rect();
-            ui.heading("Отображение");
-            ui.separator();
-            ui.label("Слои карты:");
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.heading("Отображение");
+                ui.separator();
+                ui.label("Слои карты:");
 
-            let mut recolor = false;
-            let mut reposition = false;
+                let mut recolor = false;
+                let mut reposition = false;
 
-            world.resource_scope(|_world, mut overlay: Mut<MapOverlay>| {
-                for (layer, label) in LAYERS.iter() {
+                world.resource_scope(|_world, mut overlay: Mut<MapOverlay>| {
+                    for (layer, label) in LAYERS.iter() {
+                        if ui
+                            .radio_value(&mut *overlay, layer.clone(), *label)
+                            .changed()
+                        {
+                            recolor = true;
+                        }
+                    }
+                });
+
+                ui.separator();
+                ui.label("Модификаторы:");
+
+                world.resource_scope(|_world, mut view_cfg: Mut<ViewportViewConfig>| {
                     if ui
-                        .radio_value(&mut *overlay, layer.clone(), *label)
+                        .checkbox(&mut view_cfg.flat_water, "Плоский океан")
                         .changed()
                     {
-                        recolor = true;
+                        reposition = true;
+                    }
+                    ui.checkbox(&mut view_cfg.show_axis_equator, "Ось и Экватор");
+                    ui.checkbox(&mut view_cfg.show_rivers, "Русла рек");
+                    ui.checkbox(&mut view_cfg.show_wind_arrows, "3D-стрелки ветров");
+                    ui.checkbox(&mut view_cfg.show_ocean_currents, "3D-стрелки течений");
+                    ui.checkbox(&mut view_cfg.show_river_flow, "Стрелки течения рек");
+                });
+
+                if reposition || recolor {
+                    let mut pipeline = world.resource_mut::<WorldPipeline>();
+                    if reposition {
+                        pipeline.reposition_mesh = true;
+                    }
+                    if recolor {
+                        pipeline.recolor_mesh = true;
                     }
                 }
             });
-
-            ui.separator();
-            ui.label("Модификаторы:");
-
-            world.resource_scope(|_world, mut view_cfg: Mut<ViewportViewConfig>| {
-                if ui
-                    .checkbox(&mut view_cfg.flat_water, "Плоский океан")
-                    .changed()
-                {
-                    reposition = true;
-                }
-                ui.checkbox(&mut view_cfg.show_axis_equator, "Ось и Экватор");
-                ui.checkbox(&mut view_cfg.show_rivers, "Русла рек");
-                ui.checkbox(&mut view_cfg.show_wind_arrows, "3D-стрелки ветров");
-                ui.checkbox(&mut view_cfg.show_ocean_currents, "3D-стрелки течений");
-                ui.checkbox(&mut view_cfg.show_river_flow, "Стрелки течения рек");
-            });
-
-            if reposition || recolor {
-                let mut pipeline = world.resource_mut::<WorldPipeline>();
-                if reposition {
-                    pipeline.reposition_mesh = true;
-                }
-                if recolor {
-                    pipeline.recolor_mesh = true;
-                }
-            }
         });
     panel_rect
 }
@@ -281,6 +291,7 @@ fn draw_right_panel(ui: &mut egui::Ui, world: &mut World) -> egui::Rect {
         .show(ui, |ui| {
             panel_rect = ui.max_rect();
             egui::ScrollArea::vertical().show(ui, |ui| match current_tab {
+                ActiveTab::World => draw_world_tab(ui, world),
                 ActiveTab::Tectonics => {
                     let _ = world.run_system_cached_with(draw_tectonics_tab_system, ui);
                 }
@@ -291,9 +302,8 @@ fn draw_right_panel(ui: &mut egui::Ui, world: &mut World) -> egui::Rect {
                     let _ = world.run_system_cached_with(draw_hydrology_tab_system, ui);
                 }
                 ActiveTab::Civilization => {
-                    ui.label("Настройки цивилизаций (в разработке)");
+                    let _ = world.run_system_cached_with(draw_civilization_tab_system, ui);
                 }
-                ActiveTab::World => draw_world_tab(ui, world),
             });
         });
     panel_rect
