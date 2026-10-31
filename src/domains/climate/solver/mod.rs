@@ -12,7 +12,7 @@ mod thermodynamics;
 
 use super::{
     climate_config::ClimateConfig,
-    climate_data::{ClimateLayer, SeasonalSnapshot},
+    climate_data::{ClimateLayer, SeasonalSnapshot, WaterKind},
 };
 use crate::{
     domains::{generator::GenerationLogger, tectonics::tectonics_data::GeologyLayer},
@@ -66,6 +66,10 @@ pub(super) struct SolverPrecalc {
     /// neighbor_offsets[i]..neighbor_offsets[i+1] — диапазон в tangent_dirs_flat для клетки i.
     /// Длина — num_cells + 1.
     pub neighbor_offsets: Vec<usize>,
+
+    /// Множитель инерции для озёр: 1.0 = полноценная океанская модерация,
+    /// 0.15..0.40 = озеро малого/крупного размера. Для Land/Ocean = 1.0 (без изменений).
+    pub lake_moderation_scale: Vec<f32>,
 }
 
 impl SolverPrecalc {
@@ -73,6 +77,8 @@ impl SolverPrecalc {
         topology: &WorldTopology,
         geology: &GeologyLayer,
         continentality: &[f32],
+        water_kind: &[WaterKind],
+        lake_size: &[u32],
         config: &ClimateConfig,
         seed: u32,
     ) -> Self {
@@ -106,6 +112,7 @@ impl SolverPrecalc {
 
         let mut tangent_dirs_flat = Vec::new();
         let mut neighbor_offsets = Vec::with_capacity(num_cells + 1);
+        let mut lake_moderation_scale = Vec::new();
         neighbor_offsets.push(0usize);
 
         for (i, c) in continentality.iter().enumerate().take(num_cells) {
@@ -143,13 +150,25 @@ impl SolverPrecalc {
             };
             moderation.push(mod_val);
 
-            let b_shift = if elev <= 0.0 && lat.abs() > 1.0 {
+            let wk = water_kind[i]; 
+
+            let b_shift = if wk == WaterKind::Ocean && lat.abs() > 1.0 {
                 let deep_water_factor = smoothstep((elev - (-0.06)) / (-0.22 - (-0.06)));
                 (deep_water_factor - 0.35) * 6.0
             } else {
                 0.0
             };
             bathymetry_shift.push(b_shift);
+
+            let lake_mod_scale = match wk {
+                WaterKind::Lake => {
+                    // 50 клеток → 0.15 (почти как суша), 1000 клеток → 0.40 (почти как море)
+                    let t = ((lake_size[i] as f32) - 30.0) / 970.0;
+                    (0.15 + 0.25 * t.clamp(0.0, 1.0)).min(0.45)
+                }
+                _ => 1.0,
+            };
+            lake_moderation_scale.push(lake_mod_scale);
 
             let friction_k = if elev <= 0.0 { 3.6 } else { 2.4 };
             let max_cor_rad = if elev <= 0.0 { 1.12 } else { 0.85 };
@@ -202,6 +221,7 @@ impl SolverPrecalc {
             pressure_wave_noise,
             tangent_dirs_flat,
             neighbor_offsets,
+            lake_moderation_scale,
         }
     }
 }
@@ -261,7 +281,7 @@ pub fn simulate_all_seasons(
     logger.start_step("Климат: расчет континентальности и геометрии сетки...");
     compute_continentality(topology, geology, climate, config);
 
-    let precalc = SolverPrecalc::new(topology, geology, &climate.continentality, config, seed);
+    let precalc = SolverPrecalc::new(topology, geology, &climate.continentality, &climate.water_kind, &climate.lake_size, config, seed);
 
     // Деструктуризация для disjoint-заимствований (continentality — immut, snapshots — mut).
     let ClimateLayer {
@@ -269,6 +289,7 @@ pub fn simulate_all_seasons(
         surface_albedo,
         surface_wetness,
         surface_heat_capacity,
+        water_kind,
         spring,
         summer,
         winter,
@@ -279,22 +300,23 @@ pub fn simulate_all_seasons(
     let surf_alb: &[f32] = surface_albedo;
     let surf_wet: &[f32] = surface_wetness;
     let surf_hc: &[f32] = surface_heat_capacity;
+    let wk: &[WaterKind] = water_kind;
 
     logger.start_step("Климат: симуляция 3 сезонов (Весна, Лето, Зима)...");
     rayon::scope(|s| {
         s.spawn(|_| {
             simulate_single_season(
-                0.0, topology, geology, cont, surf_alb, surf_wet, surf_hc, config, &precalc, spring,
+                0.0, topology, geology, cont, surf_alb, surf_wet, surf_hc, wk, config, &precalc, spring,
             );
         });
         s.spawn(|_| {
             simulate_single_season(
-                1.0, topology, geology, cont, surf_alb, surf_wet, surf_hc, config, &precalc, summer,
+                1.0, topology, geology, cont, surf_alb, surf_wet, surf_hc, wk, config, &precalc, summer,
             );
         });
         s.spawn(|_| {
             simulate_single_season(
-                -1.0, topology, geology, cont, surf_alb, surf_wet, surf_hc, config, &precalc,
+                -1.0, topology, geology, cont, surf_alb, surf_wet, surf_hc, wk, config, &precalc,
                 winter,
             );
         });
@@ -324,6 +346,7 @@ fn simulate_single_season(
     surface_albedo: &[f32],
     surface_wetness: &[f32],
     surface_heat_capacity: &[f32],
+    water_kind: &[WaterKind],
     config: &ClimateConfig,
     precalc: &SolverPrecalc,
     snap: &mut SeasonalSnapshot,
@@ -415,8 +438,8 @@ fn simulate_single_season(
         // Б) Течения
         compute_ocean_currents(
             topology,
-            geology,
             continentality,
+            water_kind,
             config,
             precalc,
             &mut scratch,
@@ -615,8 +638,8 @@ fn simulate_single_season(
     );
     compute_ocean_currents(
         topology,
-        geology,
         continentality,
+        water_kind,
         config,
         precalc,
         &mut scratch,
@@ -649,6 +672,7 @@ fn simulate_single_season(
     compute_season_moisture(
         topology,
         geology,
+        water_kind,
         config,
         precalc,
         surface_albedo,
@@ -663,6 +687,7 @@ fn simulate_single_season(
     compute_season_precipitation(
         topology,
         geology,
+        water_kind,
         config,
         precalc,
         surface_wetness,

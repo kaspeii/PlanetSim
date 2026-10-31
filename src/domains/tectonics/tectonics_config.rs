@@ -312,21 +312,21 @@ impl Default for TectonicsConfig {
             // Количество плюмов на планете
             hotspot_count: 24,
             // Минимальное количество вулканов в одной цепи плюма
-            hotspot_chain_min: 5,
+            hotspot_chain_min: 3,
             // Максимальное количество вулканов в одной цепи плюма
-            hotspot_chain_max: 12,
+            hotspot_chain_max: 9,
             // Шаг по времени (расстояние) между извержениями вулканов
-            hotspot_time_step: 0.10,
+            hotspot_time_step: 0.16,
             // Минимальная базовая высота нового вулкана
             hotspot_height_min: 0.3,
             // Максимальная базовая высота нового вулкана
             hotspot_height_max: 1.0,
             // Степень эрозии со временем (снижения высоты старых вулканов)
-            hotspot_erosion_pow: 0.5,
+            hotspot_erosion_pow: 0.4,
             // Базовый радиус нового вулкана
             hotspot_radius_base: 0.06,
             // Прирост радиуса старых вулканов (оседание и расползание)
-            hotspot_radius_growth: 0.02,
+            hotspot_radius_growth: 0.03,
             // Показатель степени для профиля склона вулкана (2 = вогнутые склоны, как у Фудзи)
             volcano_profile_pow: 2,
             volcano_radius_per_height: 0.05,

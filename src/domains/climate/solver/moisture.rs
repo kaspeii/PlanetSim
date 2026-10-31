@@ -3,7 +3,10 @@
 use rayon::prelude::*;
 
 use super::{
-    super::{climate_config::ClimateConfig, climate_data::SeasonalSnapshot},
+    super::{
+        climate_config::ClimateConfig,
+        climate_data::{SeasonalSnapshot, WaterKind},
+    },
     SeasonScratch, SolverPrecalc, smoothstep,
 };
 use crate::{domains::tectonics::tectonics_data::GeologyLayer, world::topology::WorldTopology};
@@ -23,6 +26,7 @@ fn open_water_fraction(albedo: f32, ocean_albedo: f32) -> f32 {
 pub(super) fn compute_season_moisture(
     topology: &WorldTopology,
     geology: &GeologyLayer,
+    water_kind: &[WaterKind],
     config: &ClimateConfig,
     precalc: &SolverPrecalc,
     surface_albedo: &[f32],
@@ -58,9 +62,6 @@ pub(super) fn compute_season_moisture(
     // 2. Влагоемкость нижней тропосферы (облачного слоя 850 гПа) и стартовый пар
     for i in 0..num_cells {
         let p = snap.pressure[i].clamp(-1.0, 1.0);
-        // Температура воздушной массы на высоте переноса облаков не испытывает резкого скачка
-        // на линии пляжа (смешиваем приземную температуру уровня моря с широтным фоном океана
-        // и вычитаем реальное горное охлаждение mountain_cooling)
         let sea_level_t = snap.temperatures[i] + precalc.mountain_cooling[i];
         let cloud_layer_t = if elevs[i] <= 0.0 {
             snap.temperatures[i]
@@ -72,21 +73,41 @@ pub(super) fn compute_season_moisture(
         let cap = saturation_capacity(cloud_layer_t);
         scratch.moisture_capacity[i] = cap;
 
-        if elevs[i] <= 0.0 {
-            let ice_bonus = if surface_wetness[i] < 0.20 { 0.20 } else { 1.0 };
-            let open_water = open_water_fraction(snap.albedo[i], config.ocean_albedo) * ice_bonus;
-            let base_rh = 0.80 + 0.15 * open_water;
-            let subsidence_mod = 1.0 - 0.18 * p.max(0.0);
-            let init_rh =
-                (base_rh * subsidence_mod) * config.ocean_evaporation_rate.clamp(0.5, 1.15);
-            scratch.specific_humidity[i] = cap * init_rh.clamp(0.35, 0.96);
-        } else {
-            let base_alb = surface_albedo[i];
-            let wetness = surface_wetness[i].max(0.18);
-            let snow_cover = ((snap.albedo[i] - base_alb) / 0.50).clamp(0.0, 1.0);
-            let init_land_rh = (0.18 + 0.35 * wetness + 0.35 * snow_cover).clamp(0.15, 0.85);
-            scratch.specific_humidity[i] = cap * init_land_rh;
-        }
+        let wk = water_kind[i];
+        let init_rh = match wk {
+            WaterKind::Ocean => {
+                let ice_bonus = if surface_wetness[i] < 0.20 { 0.20 } else { 1.0 };
+                let open_water =
+                    open_water_fraction(snap.albedo[i], config.ocean_albedo) * ice_bonus;
+                let base_rh = 0.80 + 0.15 * open_water;
+                let subsidence_mod = 1.0 - 0.18 * p.max(0.0);
+                (base_rh * subsidence_mod) * config.ocean_evaporation_rate.clamp(0.5, 1.15)
+            }
+            WaterKind::Lake => {
+                // Малые озёра ближе к влажной суше, крупные — к заливу. Freshwater evaporates
+                // slightly more eagerly than saltwater, but the lake's area is the natural cap.
+                let open_water = open_water_fraction(snap.albedo[i], config.ocean_albedo);
+                let size_factor = precalc.lake_moderation_scale[i]; // 0.15..0.45
+                // 0.15 → ~0.59, 0.45 → ~0.78
+                let base_rh = 0.50 + 0.62 * size_factor;
+                let subsidence_mod = 1.0 - 0.18 * p.max(0.0);
+                (base_rh * open_water * subsidence_mod)
+                    * config.ocean_evaporation_rate.clamp(0.5, 1.15)
+            }
+            WaterKind::Land => {
+                let base_alb = surface_albedo[i];
+                let wetness = surface_wetness[i].max(0.18);
+                let snow_cover = ((snap.albedo[i] - base_alb) / 0.50).clamp(0.0, 1.0);
+                0.18 + 0.35 * wetness + 0.35 * snow_cover
+            }
+        };
+
+        let (lo, hi) = match wk {
+            WaterKind::Ocean => (0.35, 0.96),
+            WaterKind::Lake => (0.30, 0.90),
+            WaterKind::Land => (0.15, 0.85),
+        };
+        scratch.specific_humidity[i] = cap * init_rh.clamp(lo, hi);
     }
 
     // 3. ЭТАП 1: Чистая направленная адвекция по ветру (без паразитного разбавления боковыми клетками)
@@ -106,7 +127,10 @@ pub(super) fn compute_season_moisture(
         let out = &mut scratch.specific_humidity;
 
         out.par_iter_mut().enumerate().for_each(|(i, q_out)| {
-            let is_ocean = elevs[i] <= 0.0;
+            let wk = water_kind[i];
+            let is_ocean = wk == WaterKind::Ocean;
+            let is_lake  = wk == WaterKind::Lake;
+
             let sp = wind_speed[i];
             let my_cap = cap_arr[i];
             let neighbors = &nbrs[i].neighbors;
@@ -144,9 +168,23 @@ pub(super) fn compute_season_moisture(
                     (base_rh * subsidence_mod * config.ocean_evaporation_rate.clamp(0.5, 1.15))
                         .clamp(0.35, 0.96);
                 let target_q = my_cap * target_rh;
-
                 let evap_step = (5.5 * open_water * config.ocean_evaporation_rate * inv_steps)
                     .clamp(0.04, 0.45);
+                q += (target_q - q) * evap_step;
+            } else if is_lake {
+                // Озеро: испаряет охотнее океана на клетку (пресная вода), но занимает мало клеток,
+                // поэтому суммарный вклад в атмосферу ограничен площадью — не нужно резать per-cell rate.
+                let open_water = open_water_fraction(snap.albedo[i], config.ocean_albedo);
+                // Озеро слабее подвержено субсиденции: тонкий слой быстро прогревается и отдаёт пар.
+                let subsidence_mod = 1.0
+                    - 0.15 * (my_p.max(0.0) * config.subsidence_drying_strength).clamp(0.0, 1.0);
+                let base_rh = 0.72 + 0.15 * open_water;
+                let target_rh =
+                    (base_rh * subsidence_mod * config.ocean_evaporation_rate.clamp(0.5, 1.15))
+                        .clamp(0.40, 0.92);
+                let target_q = my_cap * target_rh;
+                let evap_step = (6.0 * open_water * config.ocean_evaporation_rate * inv_steps)
+                    .clamp(0.05, 0.40);
                 q += (target_q - q) * evap_step;
             } else {
                 let wetness = surface_wetness[i].max(0.20);
@@ -205,25 +243,35 @@ pub(super) fn compute_season_moisture(
         let my_p = snap.pressure[i].clamp(-1.0, 1.0);
 
         if my_p > 0.05 {
-            let cold_protection = smoothstep((8.0 - snap.temperatures[i]) / 25.0);
             let sub_strength = config.subsidence_drying_strength.clamp(0.0, 2.0);
-            if elevs[i] <= 0.0 {
-                // Над океаном антициклон лишь умеренно снижает влажность пограничного слоя
-                let ocean_drying = (my_p - 0.05) * 0.22 * sub_strength;
-                rh = (rh * (1.0 - ocean_drying)).max(0.45);
-            } else {
-                // Над сушей нисходящие потоки антициклона формируют аридные пояса и пустыни
-                let wetness = surface_wetness[i];
-                let dry_floor = 0.12 + 0.15 * wetness;
-                let land_drying =
-                    ((my_p - 0.05) * 0.58 * sub_strength * (1.0 - 0.65 * cold_protection))
+            match water_kind[i] {
+                WaterKind::Ocean => {
+                    let ocean_drying = (my_p - 0.05) * 0.22 * sub_strength;
+                    rh = (rh * (1.0 - ocean_drying)).max(0.45);
+                }
+                WaterKind::Lake => {
+                    // Озеро не высохнет от антициклона так, как суша: поверхность подпитывается.
+                    // Но и не остаётся 0.96, как океан: площадь мала, приток пара ограничен.
+                    let lake_drying = (my_p - 0.05) * 0.30 * sub_strength;
+                    rh = (rh * (1.0 - lake_drying)).max(0.55);
+                }
+                WaterKind::Land => {
+                    let cold_protection = smoothstep((8.0 - snap.temperatures[i]) / 25.0);
+                    let wetness = surface_wetness[i];
+                    let dry_floor = 0.12 + 0.15 * wetness;
+                    let land_drying = ((my_p - 0.05)
+                        * 0.58
+                        * sub_strength
+                        * (1.0 - 0.65 * cold_protection))
                         .clamp(0.0, 0.85);
-                if rh > dry_floor {
-                    rh -= (rh - dry_floor) * land_drying;
+                    if rh > dry_floor {
+                        rh -= (rh - dry_floor) * land_drying;
+                    }
                 }
             }
-        } else if my_p < -0.05 && elevs[i] > 0.0 {
-            // В циклонах восходящие потоки приближают воздух к точке росы
+        } else if my_p < -0.05 && water_kind[i] == WaterKind::Land {
+            // В циклонах восходящие потоки повышают RH только над сушей —
+            // океан/озеро уже близки к насыщению.
             let cyclone_boost = (-my_p - 0.05) * 0.18;
             rh = (rh + (1.0 - rh) * cyclone_boost).clamp(0.0, 1.0);
         }

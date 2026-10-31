@@ -8,7 +8,7 @@ use super::super::{
 };
 use crate::{
     domains::{
-        climate::climate_data::ClimateLayer,
+        climate::climate_data::{ClimateLayer, WaterKind},
         tectonics::tectonics_data::{GeologyLayer, RockType},
     },
     world::topology::WorldTopology,
@@ -125,55 +125,84 @@ pub(super) fn compute_resources(
         // 1. ОКЕАН И МОРСКОЕ ДНО
         // =========================================================================
         if elev <= 0.0 {
+            let wk = climate.water_kind.get(i).copied().unwrap_or(WaterKind::Ocean);
             hydrology.arable_potential[i] = 0.0;
             hydrology.pastoral_potential[i] = 0.0;
             hydrology.foraging_potential[i] = 0.0;
 
-            // Рыболовство: максимум на континентальном шельфе, в зонах течений и у дельт рек
-            if biome == Biome::SeaIce {
-                hydrology.fishery_potential[i] = 0.08 * food_mult;
-            } else {
-                let shelf_factor = smoothstep(-0.14, -0.005, elev);
-                let current_speed = climate.spring.ocean_currents[i].length();
-                let upwelling_bonus = (current_speed * 0.45).clamp(0.0, 0.35);
-                let temp_opt = smoothstep(-2.0, 8.0, mean_temp)
-                    * (1.0 - smoothstep(24.0, 32.0, mean_temp) * 0.25);
-                let coast_bonus = if near_coast { 0.20 } else { 0.0 };
+            match wk {
+                WaterKind::Lake => {
+                    // Пресноводное рыболовство: размер озера масштабирует потенциал.
+                    // ice_penalty тот же, что и для наземного.
+                    let size_norm = (climate.lake_size.get(i).copied().unwrap_or(0) as f32
+                        / 500.0).clamp(0.15, 1.0);
+                    let ice_penalty = smoothstep(-12.0, 2.0, mean_temp);
+                    hydrology.fishery_potential[i] =
+                        (0.55 * size_norm * ice_penalty * food_mult).clamp(0.0, 1.0);
 
-                hydrology.fishery_potential[i] =
-                    ((0.12 + shelf_factor * 0.58 + upwelling_bonus + coast_bonus)
-                        * temp_opt
-                        * food_mult)
-                        .clamp(0.0, 1.0);
-            }
+                    // Солёные озёра (замкнутые котловины) — источник соли.
+                    // Признак: аридный климат + нет стока → пока упрощённо по aridity.
+                    let is_salt_lake = smoothstep(0.55, 0.85, climate.summer.temperatures[i] / 30.0)
+                        * (1.0 - smoothstep(0.30, 0.55, climate.spring.humidity[i]));
+                    if is_salt_lake > 0.5 && n_basin > ore_cutoff {
+                        hydrology.minerals[i] = MineralResource::Salt;
+                        hydrology.mineral_richness[i] = (is_salt_lake - 0.5) * 2.0;
+                    } else {
+                        hydrology.minerals[i] = MineralResource::None;
+                        hydrology.mineral_richness[i] = 0.0;
+                    }
+                    hydrology.bio_resources[i] = BioResource::None;
+                    hydrology.bio_richness[i] = 0.0;
+                }
+                WaterKind::Ocean => {
+                    if biome == Biome::SeaIce {
+                        hydrology.fishery_potential[i] = 0.08 * food_mult;
+                    } else {
+                        let shelf_factor = smoothstep(-0.14, -0.005, elev);
+                        let current_speed = climate.spring.ocean_currents[i].length();
+                        let upwelling_bonus = (current_speed * 0.45).clamp(0.0, 0.35);
+                        let temp_opt = smoothstep(-2.0, 8.0, mean_temp)
+                            * (1.0 - smoothstep(24.0, 32.0, mean_temp) * 0.25);
+                        let coast_bonus = if near_coast { 0.20 } else { 0.0 };
 
-            // Шельфовые углеводороды (нефть и газ) на пассивных окраинах и карбонатных банках
-            if elev > -0.12
-                && matches!(
-                    rock,
-                    RockType::ShaleClay | RockType::Limestone | RockType::Sandstone
-                )
-                && n_basin > ore_cutoff + 0.08
-            {
-                hydrology.minerals[i] = MineralResource::Hydrocarbons;
-                hydrology.mineral_richness[i] = ((n_basin - ore_cutoff) * 1.8).clamp(0.25, 1.0);
-            } else {
-                hydrology.minerals[i] = MineralResource::None;
-                hydrology.mineral_richness[i] = 0.0;
-            }
+                        hydrology.fishery_potential[i] =
+                            ((0.12 + shelf_factor * 0.58 + upwelling_bonus + coast_bonus)
+                                * temp_opt
+                                * food_mult)
+                                .clamp(0.0, 1.0);
+                    }
 
-            // Китобойный и зверобойный промысел в холодных морях у кромки льдов
-            if (biome == Biome::SeaIce || (mean_temp < 4.0 && elev > -0.15))
-                && n_bio_a > bio_cutoff + 0.12
-            {
-                hydrology.bio_resources[i] = BioResource::FurIvory;
-                hydrology.bio_richness[i] = ((n_bio_a - bio_cutoff) * 1.6).clamp(0.2, 1.0);
-            } else {
-                hydrology.bio_resources[i] = BioResource::None;
-                hydrology.bio_richness[i] = 0.0;
+                    // Шельфовые углеводороды (нефть и газ) на пассивных окраинах и карбонатных банках
+                    if elev > -0.12
+                        && matches!(
+                            rock,
+                            RockType::ShaleClay | RockType::Limestone | RockType::Sandstone
+                        )
+                        && n_basin > ore_cutoff + 0.08
+                    {
+                        hydrology.minerals[i] = MineralResource::Hydrocarbons;
+                        hydrology.mineral_richness[i] = ((n_basin - ore_cutoff) * 1.8).clamp(0.25, 1.0);
+                    } else {
+                        hydrology.minerals[i] = MineralResource::None;
+                        hydrology.mineral_richness[i] = 0.0;
+                    }
+
+                    // Китобойный и зверобойный промысел в холодных морях у кромки льдов
+                    if (biome == Biome::SeaIce || (mean_temp < 4.0 && elev > -0.15))
+                        && n_bio_a > bio_cutoff + 0.12
+                    {
+                        hydrology.bio_resources[i] = BioResource::FurIvory;
+                        hydrology.bio_richness[i] = ((n_bio_a - bio_cutoff) * 1.6).clamp(0.2, 1.0);
+                    } else {
+                        hydrology.bio_resources[i] = BioResource::None;
+                        hydrology.bio_richness[i] = 0.0;
+                    }
+                    continue;
+                }
+                WaterKind::Land => unreachable!(),
             }
             continue;
-        }
+        }   
 
         // =========================================================================
         // 2. СУША: ПРОДОВОЛЬСТВЕННЫЙ ПОТЕНЦИАЛ (4 СТОЛПА ЕДЫ)

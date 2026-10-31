@@ -48,7 +48,7 @@ pub(super) fn calc_radiative_sea_temp(
         raw_temp += cont_factor * (base_insolation - 0.42) * 10.5;
     }
 
-    let moderation = precalc.moderation[i];
+    let moderation = precalc.moderation[i] * precalc.lake_moderation_scale[i];
     let ocean_equilibrium = precalc.ocean_equilibrium[i];
 
     raw_temp * (1.0 - moderation) + ocean_equilibrium * moderation + precalc.bathymetry_shift[i]

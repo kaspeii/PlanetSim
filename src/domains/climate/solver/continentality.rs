@@ -2,7 +2,7 @@
 
 use std::collections::VecDeque;
 
-use super::super::{climate_config::ClimateConfig, climate_data::ClimateLayer};
+use super::super::{climate_config::ClimateConfig, climate_data::ClimateLayer, WaterKind};
 use super::smoothstep;
 use crate::{domains::tectonics::tectonics_data::GeologyLayer, world::topology::WorldTopology};
 
@@ -20,6 +20,12 @@ pub(super) fn compute_continentality(
     let mut is_ocean = vec![false; num_cells];
     let mut is_major_land = vec![false; num_cells];
     let mut visited = vec![false; num_cells];
+
+    // Полный сброс — чтобы старые значения не протекали при повторных вызовах
+    climate.water_kind.clear();
+    climate.water_kind.resize(num_cells, WaterKind::Land);
+    climate.lake_size.clear();
+    climate.lake_size.resize(num_cells, 0);
 
     // 1. Flood Fill: находим настоящие океаны (отсеиваем мелкие озера)
     // и настоящие континенты (отсеиваем мелкие океанические острова)
@@ -48,6 +54,13 @@ pub(super) fn compute_continentality(
             if current_body.len() >= min_ocean_cells {
                 for &cell_id in &current_body {
                     is_ocean[cell_id] = true;
+                    climate.water_kind[cell_id] = WaterKind::Ocean;
+                }
+            } else {
+                let size = current_body.len() as u32;
+                for &cell_id in &current_body {
+                    climate.water_kind[cell_id] = WaterKind::Lake;
+                    climate.lake_size[cell_id] = size;
                 }
             }
         } else if current_body.len() >= min_land_cells {
@@ -99,15 +112,28 @@ pub(super) fn compute_continentality(
 
     // Знаковая континентальность: -1 = открытый океан, 0 = берег, +1 = глубь континента
     for i in 0..num_cells {
-        let is_water = geology.elevations[i] <= 0.0;
-        climate.continentality[i] = if is_water {
-            let physical_dist = dist_to_land[i] as f32 * avg_hex_rad;
-            let norm = (physical_dist / config.ocean_continentality_scale).min(1.0);
-            -smoothstep(norm) // -1 далеко от материков, 0 у берега материка
-        } else {
-            let physical_dist = dist_to_ocean[i] as f32 * avg_hex_rad;
-            let norm = (physical_dist / config.land_continentality_scale).min(1.0);
-            smoothstep(norm) // 0 на островах и пляжах, +1 в глубине материка
+        let wk = climate.water_kind[i];
+        climate.continentality[i] = match wk {
+            WaterKind::Ocean => {
+                let physical_dist = dist_to_land[i] as f32 * avg_hex_rad;
+                let norm = (physical_dist / config.ocean_continentality_scale).min(1.0);
+                -smoothstep(norm)
+            }
+            WaterKind::Lake => {
+                // Озеро — «суша со скидкой»: чем крупнее, тем ближе к береговому поведению,
+                // но никогда не уходит в отрицательные значения (не тянет морской климат).
+                let physical_dist = dist_to_ocean[i] as f32 * avg_hex_rad;
+                let norm = (physical_dist / config.land_continentality_scale).min(1.0);
+                let base = smoothstep(norm);
+                let size = climate.lake_size[i] as f32;
+                let lake_influence = (size / (num_cells as f32 * 0.01)).min(1.0) * 0.40;
+                base * (1.0 - lake_influence)
+            }
+            WaterKind::Land => {
+                let physical_dist = dist_to_ocean[i] as f32 * avg_hex_rad;
+                let norm = (physical_dist / config.land_continentality_scale).min(1.0);
+                smoothstep(norm)
+            }
         };
     }
 }

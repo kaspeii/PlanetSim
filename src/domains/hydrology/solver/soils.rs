@@ -3,7 +3,7 @@
 use super::SurfaceNoise;
 use crate::{
     domains::{
-        climate::climate_data::ClimateLayer,
+        climate::climate_data::{ClimateLayer, WaterKind},
         hydrology::{
             hydrology_config::HydrologyConfig,
             hydrology_data::{HydrologyLayer, SoilType},
@@ -28,11 +28,25 @@ pub(super) fn compute_soils(
 
         // Океаническое дно не имеет наземного почвенного профиля
         if elev <= 0.0 {
-            hydrology.soils[i] = SoilType::Ocean;
-            hydrology.soil_texture[i] = [0.0, 0.3, 0.7];
-            hydrology.soil_depth[i] = 0.0;
-            hydrology.water_capacity[i] = 1.0;
-            hydrology.permeability[i] = 0.0;
+            let wk = climate.water_kind.get(i).copied().unwrap_or(WaterKind::Ocean);
+            match wk {
+                WaterKind::Lake => {
+                    // Донные отложения озера: органический ил + глина (прокси Gleysol)
+                    hydrology.soils[i] = SoilType::Gleysol;
+                    hydrology.soil_texture[i] = [0.15, 0.40, 0.45];
+                    hydrology.soil_depth[i] = 0.5;
+                    hydrology.water_capacity[i] = 1.0;
+                    hydrology.permeability[i] = 0.01;
+                }
+                WaterKind::Ocean => {
+                    hydrology.soils[i] = SoilType::Ocean;
+                    hydrology.soil_texture[i] = [0.0, 0.3, 0.7];
+                    hydrology.soil_depth[i] = 0.0;
+                    hydrology.water_capacity[i] = 1.0;
+                    hydrology.permeability[i] = 0.0;
+                }
+                WaterKind::Land => unreachable!(),
+            }
             continue;
         }
 

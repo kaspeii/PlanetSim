@@ -15,7 +15,7 @@ use super::{
 };
 use crate::{
     domains::{
-        climate::{ClimateConfig, climate_data::ClimateLayer},
+        climate::{ClimateConfig, climate_data::{ClimateLayer, WaterKind}},
         tectonics::tectonics_data::GeologyLayer,
     },
     world::topology::WorldTopology,
@@ -112,14 +112,25 @@ pub fn apply_surface_feedback_to_climate(
 
     for i in 0..num_cells {
         if geology.elevations[i] <= 0.0 {
+            let wk = climate.water_kind.get(i).copied().unwrap_or(WaterKind::Ocean);
             let is_ice = matches!(hydrology.biomes[i], Biome::SeaIce);
-            climate.surface_albedo[i] = if is_ice {
-                0.60 // морской лёд без снега
-            } else {
-                c_config.ocean_albedo
-            };
-            climate.surface_wetness[i] = if is_ice { 0.05 } else { 1.0 };
-            climate.surface_heat_capacity[i] = if is_ice { 0.25 } else { 0.0 };
+
+            match wk {
+                WaterKind::Lake => {
+                    // Пресная вода: альбедо выше морской (0.10 vs 0.06), лёд охотнее
+                    climate.surface_albedo[i] = if is_ice { 0.55 } else { 0.10 };
+                    climate.surface_wetness[i] = if is_ice { 0.10 } else { 1.0 };
+                    // Теплоёмкость не используется в climate-демпфировании для `elev <= 0.0`,
+                    // но пусть будет диагностически осмысленной — меньше океанской
+                    climate.surface_heat_capacity[i] = if is_ice { 0.20 } else { 0.75 };
+                }
+                WaterKind::Ocean => {
+                    climate.surface_albedo[i] = if is_ice { 0.60 } else { c_config.ocean_albedo };
+                    climate.surface_wetness[i] = if is_ice { 0.05 } else { 1.0 };
+                    climate.surface_heat_capacity[i] = if is_ice { 0.25 } else { 0.0 };
+                }
+                WaterKind::Land => unreachable!(),
+            }
             continue;
         }
 

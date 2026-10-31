@@ -3,7 +3,7 @@
 use super::SurfaceNoise;
 use crate::{
     domains::{
-        climate::climate_data::ClimateLayer,
+        climate::climate_data::{ClimateLayer, WaterKind},
         hydrology::{
             hydrology_config::HydrologyConfig,
             hydrology_data::{Biome, HydrologyLayer, SoilType},
@@ -45,15 +45,34 @@ pub(super) fn compute_biomes(
 
         // 2. Океанические биомы (с естественной кромкой морского льда)
         if elev <= 0.0 {
+            let wk = climate.water_kind.get(i).copied().unwrap_or_else(|| {
+                // Fallback на случай, если water_kind почему-то пуст
+                if elev <= 0.0 { WaterKind::Ocean } else { WaterKind::Land }
+            });
             let ice_jitter = noise.temp_jitter[i] * 0.8;
-            hydrology.biomes[i] = if mean_temp + ice_jitter < -4.5 || warm_temp + ice_jitter < -1.0
-            {
-                Biome::SeaIce
-            } else if elev > -0.09 {
-                Biome::ShallowOcean
-            } else {
-                Biome::DeepOcean
-            };
+
+            match wk {
+                WaterKind::Lake => {
+                    // Пресные озёра замерзают охотнее моря и не бывают «глубоким океаном»
+                    hydrology.biomes[i] = if mean_temp + ice_jitter < -2.5 {
+                        Biome::SeaIce // TODO: со временем заменить на Biome::LakeIce
+                    } else {
+                        Biome::ShallowOcean // TODO: со временем заменить на Biome::Lake
+                    };
+                }
+                WaterKind::Ocean => {
+                    hydrology.biomes[i] = if mean_temp + ice_jitter < -4.5
+                        || warm_temp + ice_jitter < -1.0
+                    {
+                        Biome::SeaIce
+                    } else if elev > -0.09 {
+                        Biome::ShallowOcean
+                    } else {
+                        Biome::DeepOcean
+                    };
+                }
+                WaterKind::Land => unreachable!("elev <= 0.0 but WaterKind::Land"),
+            }
             continue;
         }
 
