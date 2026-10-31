@@ -13,7 +13,8 @@ use main_menu::main_menu_ui;
 use overlays::{
     LegendState, generation_progress_overlay, map_legend_overlay, save_load_progress_overlay,
 };
-use shell::{render_ui_shell, ShellLayout};
+use shell::render_ui_shell;
+pub use shell::ShellLayout;
 
 #[derive(Resource, Default, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum ActiveTab {

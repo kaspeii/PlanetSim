@@ -39,7 +39,7 @@ use crate::{
 };
 use bevy::prelude::*;
 use camera_3d::{
-    GlobeInertia, keyboard_zoom, reset_zoom, rotate_globe, set_default_camera_zoom, zoom_camera,
+    GlobeInertia, keyboard_zoom, reset_zoom, globe_drag_input, globe_apply_inertia, set_default_camera_zoom, zoom_camera,
 };
 use hotkeys::hotkey_controls;
 use mesh_globe::{build_globe_mesh, build_river_mesh, recolor_globe_mesh, reposition_globe_mesh};
@@ -118,7 +118,8 @@ impl Plugin for ViewportPlugin {
             .add_systems(
                 Update,
                 (
-                    rotate_globe,
+                    globe_drag_input, 
+                    globe_apply_inertia,
                     zoom_camera,
                     hotkey_controls,
                     keyboard_zoom,

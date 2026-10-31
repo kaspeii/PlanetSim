@@ -1,23 +1,75 @@
 // src/viewport/camera_3d.rs
 
 use super::Globe;
-use crate::world::WorldConfig;
+use crate::{world::WorldConfig, ui::ShellLayout};
 #[cfg(target_os = "macos")]
 use bevy::input::gestures::PinchGesture;
 use bevy::{
     input::mouse::{AccumulatedMouseMotion, MouseWheel},
     prelude::*,
 };
+use bevy_egui::EguiContexts;
 
 #[derive(Component, Default)]
 pub struct GlobeInertia {
     pub velocity: Vec2,
 }
 
-pub fn rotate_globe(
-    mut query: Query<(&mut Transform, &mut GlobeInertia), With<Globe>>,
+/// Опрашивает ввод и обновляет скорость инерции глобуса.
+/// Трансформ НЕ трогает — только `GlobeInertia`.
+pub fn globe_drag_input(
+    mut query: Query<&mut GlobeInertia, With<Globe>>,
     mouse_button: Res<ButtonInput<MouseButton>>,
     accumulated_mouse: Res<AccumulatedMouseMotion>,
+    time: Res<Time>,
+    layout: Res<ShellLayout>,
+    mut egui_context: EguiContexts,
+) {
+    let dt = time.delta_secs();
+    if dt == 0.0 {
+        return;
+    }
+
+    let Ok(mut inertia) = query.single_mut() else {
+        return;
+    };
+
+    let Ok(ctx) = egui_context.ctx_mut() else {
+        return;
+    };
+
+    let over_panel = ctx
+        .input(|i| i.pointer.hover_pos())
+        .map_or(false, |pos| {
+            layout.top.contains(pos)
+                || layout.bottom.contains(pos)
+                || layout.left.contains(pos)
+                || layout.right.contains(pos)
+        });
+
+    let pointer_over_ui = over_panel || ctx.is_pointer_over_egui();
+
+    // Активно тянем глобус — только если ЛКМ зажата И курсор не над GUI.
+    let dragging = mouse_button.pressed(MouseButton::Left) && !pointer_over_ui;
+
+    if dragging {
+        let current_velocity = accumulated_mouse.delta / dt;
+        let t = (15.0 * dt).clamp(0.0, 1.0);
+        inertia.velocity = inertia.velocity.lerp(current_velocity, t);
+    } else {
+        // Отпустили мышь или увели на GUI — глобус коастит и плавно тормозит.
+        let friction = 3.0;
+        inertia.velocity *= (-friction * dt).exp();
+        if inertia.velocity.length() < 1.0 {
+            inertia.velocity = Vec2::ZERO;
+        }
+    }
+}
+
+/// Применяет накопленную скорость инерции к трансформу глобуса.
+/// Про GUI/ввод ничего не знает.
+pub fn globe_apply_inertia(
+    mut query: Query<(&mut Transform, &GlobeInertia), With<Globe>>,
     time: Res<Time>,
 ) {
     let dt = time.delta_secs();
@@ -25,29 +77,20 @@ pub fn rotate_globe(
         return;
     }
 
-    if let Ok((mut transform, mut inertia)) = query.single_mut() {
-        let sensitivity = 0.005;
+    let Ok((mut transform, inertia)) = query.single_mut() else {
+        return;
+    };
 
-        if mouse_button.pressed(MouseButton::Left) {
-            let current_velocity = accumulated_mouse.delta / dt;
-            inertia.velocity = inertia.velocity.lerp(current_velocity, 15.0 * dt);
-        } else {
-            let friction = 3.0;
-            inertia.velocity *= (-friction * dt).exp();
-            if inertia.velocity.length() < 1.0 {
-                inertia.velocity = Vec2::ZERO;
-            }
-        }
-
-        if inertia.velocity != Vec2::ZERO {
-            let frame_delta = inertia.velocity * dt;
-            let yaw = Quat::from_rotation_y(frame_delta.x * sensitivity);
-            let pitch = Quat::from_rotation_x(frame_delta.y * sensitivity);
-
-            transform.rotation = yaw * pitch * transform.rotation;
-            transform.rotation = transform.rotation.normalize();
-        }
+    if inertia.velocity == Vec2::ZERO {
+        return;
     }
+
+    let sensitivity = 0.005;
+    let frame_delta = inertia.velocity * dt;
+    let yaw = Quat::from_rotation_y(frame_delta.x * sensitivity);
+    let pitch = Quat::from_rotation_x(frame_delta.y * sensitivity);
+
+    transform.rotation = (yaw * pitch * transform.rotation).normalize();
 }
 
 /// Возвращает “стандартный” зум для заданного радиуса.

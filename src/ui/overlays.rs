@@ -278,7 +278,7 @@ pub fn map_legend_overlay(
             // вверх, а кнопка остаётся на месте (bottom-anchor).
             if legend_state.open {
                 let screen_h = ui.ctx().content_rect().height();
-                let max_h = (screen_h * 0.5 - CHROME_H).max(MIN_LEGEND_H);
+                let max_h = (screen_h * 0.7 - CHROME_H).max(MIN_LEGEND_H);
 
                 egui::ScrollArea::vertical()
                     .max_height(max_h)
