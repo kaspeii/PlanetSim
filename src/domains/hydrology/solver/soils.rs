@@ -80,6 +80,9 @@ pub(super) fn compute_soils(
         // Положительный valley_concavity означает ложбину/котловину, где скапливается ил
         let valley_concavity = (avg_n_elev - elev).clamp(-0.05, 0.05);
 
+        let rugged = geology.terrain_ruggedness.get(i).copied().unwrap_or(0.0);
+        let effective_slope = max_slope.max(rugged * 0.055);
+
         // 3. Материнская порода -> Базовая текстура [sand, silt, clay]
         let rock = geology.lithology[i];
         let [mut sand, mut silt, mut clay] = rock.base_texture();
@@ -94,7 +97,7 @@ pub(super) fn compute_soils(
         let frost_weathering = ((5.0 - eff_mean_temp) / 25.0).clamp(0.0, 0.45);
 
         // Смыв мелких фракций со склонов и аккумуляция в ложбинах
-        let slope_wash = (max_slope * config.slope_erosion_sensitivity).clamp(0.0, 0.75);
+        let slope_wash = (effective_slope * config.slope_erosion_sensitivity).clamp(0.0, 0.75);
         let basin_deposition = (valley_concavity * 12.0).clamp(0.0, 0.35);
 
         sand = (sand - chem_weathering * 0.35 + slope_wash * 0.45 + frost_weathering * 0.10
@@ -118,7 +121,7 @@ pub(super) fn compute_soils(
         let climate_depth_mod =
             (0.45 + 0.55 * (wet_factor * 0.7 + heat_factor * 0.3)).clamp(0.3, 1.0);
         let slope_depth_factor =
-            (1.0 - max_slope * config.slope_erosion_sensitivity * 0.85).clamp(0.08, 1.0);
+            (1.0 - effective_slope * config.slope_erosion_sensitivity * 0.85).clamp(0.08, 1.0);
         let depth = (slope_depth_factor * climate_depth_mod).clamp(0.08, 1.0);
         hydrology.soil_depth[i] = depth;
 
@@ -147,7 +150,7 @@ pub(super) fn compute_soils(
             eff_mean_temp,
             eff_warm_temp,
             eff_moisture_index,
-            max_slope,
+            effective_slope,
             elev,
             depth,
             sand,

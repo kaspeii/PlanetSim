@@ -190,12 +190,16 @@ pub(super) fn compute_resources(
             SoilType::Aridisol => 0.25, // Требует речного орошения
             SoilType::Gelisol | SoilType::Leptosol | SoilType::Ocean => 0.04,
         };
+
+        let rugged = geology.terrain_ruggedness[i];
         let silt_loam_bonus = (silt * 0.45).clamp(0.0, 0.22);
         let growing_season = smoothstep(5.0, 16.0, warm_temp) * smoothstep(-14.0, 6.0, mean_temp);
         // Оптимум влаги в почве 0.35..0.80; при переувлажнении в холоде гниют корни, в тропиках — растет рис
         let moisture_curve = smoothstep(0.14, 0.42, sm)
             * (1.0 - smoothstep(0.82, 0.98, sm) * if mean_temp > 18.0 { 0.15 } else { 0.55 });
-        let flat_terrain = (1.0 - max_slope / 0.045).clamp(0.0, 1.0).powi(2);
+        let flat_terrain = ((1.0 - max_slope / 0.045) * (1.0 - rugged * 0.75))
+            .clamp(0.0, 1.0)
+            .powi(2);
         let river_irrigation = if flow_ratio > 0.6 && sm > 0.25 {
             (flow_ratio.sqrt() * 0.12).clamp(0.0, 0.28)
         } else {
@@ -224,7 +228,7 @@ pub(super) fn compute_resources(
             Biome::TropicalRainforest | Biome::TemperateRainforest => 0.10, // Густой лес и муха цеце
             _ => 0.0,
         };
-        let slope_pasture = (1.0 - max_slope / 0.095).clamp(0.15, 1.0);
+        let slope_pasture = ((1.0 - max_slope / 0.095) * (1.0 - rugged * 0.45)).clamp(0.15, 1.0);
         let temp_pasture = smoothstep(-18.0, -2.0, mean_temp);
         hydrology.pastoral_potential[i] =
             (biome_pasture * slope_pasture * temp_pasture * (0.4 + 0.6 * sm.sqrt()) * food_mult)
@@ -265,6 +269,7 @@ pub(super) fn compute_resources(
         // =========================================================================
         let mut best_mineral = MineralResource::None;
         let mut best_m_score = ore_cutoff;
+        let outcrop_bonus = 1.0 + rugged * 0.18;
 
         let mut consider_mineral = |res: MineralResource, score: f32| {
             if score > best_m_score {
@@ -320,7 +325,7 @@ pub(super) fn compute_resources(
             RockType::Sandstone if elev > 0.08 => 0.56 * n_ore_a,
             _ => 0.0,
         };
-        consider_mineral(MineralResource::Copper, copper_score);
+        consider_mineral(MineralResource::Copper, copper_score * outcrop_bonus);
 
         // 6. Олово (Tin): редкие грейзеновые жилы в кислых гранитных плутонах
         let tin_score = if rock == RockType::Granite {
@@ -328,7 +333,7 @@ pub(super) fn compute_resources(
         } else {
             0.0
         };
-        consider_mineral(MineralResource::Tin, tin_score);
+        consider_mineral(MineralResource::Tin, tin_score * outcrop_bonus);
 
         // 7. Железо (Iron): железистые кварциты щитов (GneissSchist), скарны и болотные руды
         let iron_score = match rock {
@@ -337,7 +342,7 @@ pub(super) fn compute_resources(
             _ if biome == Biome::Wetland || soil == SoilType::Gleysol => 0.56 * n_ore_b,
             _ => 0.0,
         };
-        consider_mineral(MineralResource::Iron, iron_score);
+        consider_mineral(MineralResource::Iron, iron_score * outcrop_bonus);
 
         // 8. Золото и Серебро (PreciousMetals): коренные жилы в горах + аллювиальные россыпи в реках ниже гор
         let gold_vein = if matches!(
@@ -354,7 +359,10 @@ pub(super) fn compute_resources(
         } else {
             0.0
         };
-        consider_mineral(MineralResource::PreciousMetals, gold_vein.max(gold_placer));
+        consider_mineral(
+            MineralResource::PreciousMetals,
+            gold_vein.max(gold_placer) * outcrop_bonus,
+        );
 
         // 9. Сера, Селитра и Фосфаты (SulfurNitre): вулканы (сера) и гипераридные пустыни/карст (селитра/фосфориты)
         let sulfur_score = if geology.volcano_mask[i] || rock == RockType::Andesite {
@@ -422,7 +430,7 @@ pub(super) fn compute_resources(
         } else {
             0.0
         };
-        consider_mineral(MineralResource::Uranium, uranium_score);
+        consider_mineral(MineralResource::Uranium, uranium_score * outcrop_bonus);
 
         // 15. Редкоземельные металлы и Литий (RareEarths): щелочные интрузии и солончаково-вулканические котловины
         let ree_score = if (soil == SoilType::Aridisol || elev > 0.12)
@@ -434,7 +442,7 @@ pub(super) fn compute_resources(
         } else {
             0.0
         };
-        consider_mineral(MineralResource::RareEarths, ree_score);
+        consider_mineral(MineralResource::RareEarths, ree_score * outcrop_bonus);
 
         hydrology.minerals[i] = best_mineral;
         hydrology.mineral_richness[i] = if best_mineral != MineralResource::None {
