@@ -7,15 +7,13 @@ mod shell;
 use bevy::prelude::*;
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 
-use crate::{
-    domains::tectonics::GeologyLayer,
-    viewport::Globe,
-    world::states::AppState,
-};
+use crate::{domains::tectonics::GeologyLayer, viewport::Globe, world::states::AppState};
 
 use main_menu::main_menu_ui;
-use overlays::{generation_progress_overlay, save_load_progress_overlay};
-use shell::render_ui_shell;
+use overlays::{
+    LegendState, generation_progress_overlay, map_legend_overlay, save_load_progress_overlay,
+};
+use shell::{render_ui_shell, ShellLayout};
 
 #[derive(Resource, Default, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum ActiveTab {
@@ -36,6 +34,8 @@ impl Plugin for UiPlugin {
         }
 
         app.init_resource::<ActiveTab>()
+            .init_resource::<LegendState>()
+            .init_resource::<ShellLayout>() 
             .add_systems(
                 EguiPrimaryContextPass,
                 (
@@ -43,6 +43,7 @@ impl Plugin for UiPlugin {
                     main_menu_ui.run_if(in_state(AppState::MainMenu)),
                     generation_progress_overlay,
                     save_load_progress_overlay,
+                    map_legend_overlay.run_if(in_state(AppState::InGame)),
                 )
                     .chain(),
             )

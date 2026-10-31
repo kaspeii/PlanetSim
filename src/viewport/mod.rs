@@ -3,6 +3,7 @@
 pub mod camera_3d;
 pub mod hotkeys;
 pub mod mesh_globe;
+pub mod palettes;
 
 use crate::{
     domains::{
@@ -16,11 +17,10 @@ use crate::{
         },
         hydrology::{
             HydrologyConfig,
-            hydrology_data::{Biome, HydrologyLayer},
+            hydrology_data::HydrologyLayer,
             hydrology_palettes::{
-                biome_satellite_rgb, build_bio_resource_colors, build_biome_colors,
-                build_food_potential_colors, build_mineral_colors, build_soil_colors,
-                build_soil_moisture_colors,
+                build_bio_resource_colors, build_biome_colors, build_food_potential_colors,
+                build_mineral_colors, build_soil_colors, build_soil_moisture_colors,
             },
         },
         tectonics::{
@@ -43,6 +43,7 @@ use camera_3d::{
 };
 use hotkeys::hotkey_controls;
 use mesh_globe::{build_globe_mesh, build_river_mesh, recolor_globe_mesh, reposition_globe_mesh};
+use palettes::build_space_colors;
 
 #[derive(Component)]
 pub struct Globe;
@@ -175,49 +176,6 @@ fn setup_scene(mut commands: Commands, mut materials: ResMut<Assets<StandardMate
     ));
 
     commands.spawn((Camera3d::default(), Transform::from_xyz(0.0, 0.0, 9.5)));
-}
-
-pub fn build_space_colors(
-    geology: &GeologyLayer,
-    climate: &ClimateLayer,
-    hydrology: &HydrologyLayer,
-) -> Vec<[f32; 4]> {
-    geology
-        .elevations
-        .iter()
-        .enumerate()
-        .map(|(i, &h)| {
-            let albedo = climate.albedo[i];
-            let biome = hydrology.biomes.get(i).copied().unwrap_or(Biome::DeepOcean);
-
-            let (base_r, base_g, base_b, base_albedo) = if h <= 0.0 {
-                if biome == Biome::SeaIce {
-                    (0.88, 0.94, 0.99, 0.75)
-                } else {
-                    let depth = (h / -0.35).clamp(0.0, 1.0);
-                    let r = 0.02 + (1.0 - depth) * 0.04;
-                    let g = 0.10 + (1.0 - depth) * 0.18;
-                    let b = 0.28 + (1.0 - depth) * 0.25;
-                    (r, g, b, 0.06)
-                }
-            } else {
-                let (r, g, b, b_alb) = biome_satellite_rgb(biome);
-                // Легкое высотное тонирование рельефа
-                let elev_shade = (1.0 - (h - 0.10).max(0.0) * 0.35).clamp(0.75, 1.0);
-                (r * elev_shade, g * elev_shade, b * elev_shade, b_alb)
-            };
-
-            // Сезонный снежный покров и морской лед из текущего сезона климата
-            let snow_cover =
-                ((albedo - base_albedo) / (0.80 - base_albedo).max(0.1)).clamp(0.0, 1.0);
-
-            let r = base_r * (1.0 - snow_cover) + 0.92 * snow_cover;
-            let g = base_g * (1.0 - snow_cover) + 0.96 * snow_cover;
-            let b = base_b * (1.0 - snow_cover) + 1.00 * snow_cover;
-
-            Color::srgb(r, g, b).to_linear().to_f32_array()
-        })
-        .collect()
 }
 
 #[allow(clippy::too_many_arguments)]

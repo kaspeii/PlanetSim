@@ -1,10 +1,12 @@
 // src/domains/mod.rs
 
-pub mod climate;
-pub mod generator;
-pub mod hydrology;
-pub mod save;
 pub mod tectonics;
+pub mod climate;
+pub mod hydrology;
+
+pub mod generator;
+pub mod save;
+pub mod palettes;
 
 use bevy::prelude::*;
 use generator::{GenerationRequest, handle_generation_task, spawn_generation_task};

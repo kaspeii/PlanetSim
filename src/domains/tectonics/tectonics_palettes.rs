@@ -1,5 +1,6 @@
 // src/domains/tectonics/tectonics_palettes.rs
 
+use crate::domains::palettes::{rgb_u8, LegendEntry, MapLegend};
 use super::tectonics_data::{GeologyLayer, PlateType, RockType};
 use bevy::color::{Color, ColorToComponents};
 use bevy::prelude::*;
@@ -157,4 +158,74 @@ pub fn build_ruggedness_colors(geology: &GeologyLayer) -> Vec<[f32; 4]> {
             Color::srgb(r, g, b).to_linear().to_f32_array()
         })
         .collect()
+}
+
+// ==== ЛЕГЕНДЫ КАРТЫ ====
+
+/// Легенда рельефа — пороги взяты 1:1 из `elevation_to_color`.
+pub fn elevation_legend() -> MapLegend {
+    MapLegend {
+        title: "Рельеф",
+        entries: vec![
+            LegendEntry { rgb: rgb_u8(0.05, 0.02, 0.01), label: "Абиссаль  (≤ −0.44)".into() },
+            LegendEntry { rgb: rgb_u8(0.15, 0.08, 0.04), label: "Глубокий океан  (−0.44…−0.16)".into() },
+            LegendEntry { rgb: rgb_u8(0.30, 0.17, 0.09), label: "Океан  (−0.16…−0.02)".into() },
+            LegendEntry { rgb: rgb_u8(0.50, 0.32, 0.17), label: "Шельф / берег  (~0)".into() },
+            LegendEntry { rgb: rgb_u8(0.46, 0.29, 0.15), label: "Равнины  (0.01…0.12)".into() },
+            LegendEntry { rgb: rgb_u8(0.62, 0.40, 0.20), label: "Возвышенности  (0.12…0.32)".into() },
+            LegendEntry { rgb: rgb_u8(0.78, 0.46, 0.19), label: "Предгорья  (0.32…0.50)".into() },
+            LegendEntry { rgb: rgb_u8(0.87, 0.33, 0.12), label: "Горы  (0.50…0.64)".into() },
+            LegendEntry { rgb: rgb_u8(0.95, 0.18, 0.10), label: "Пики  (≥ 0.64)".into() },
+        ],
+    }
+}
+
+/// Легенда литологии — перечисляем все типы пород, цвета совпадают с палитрой.
+pub fn lithology_legend() -> MapLegend {
+    let rocks: &[(RockType, &str, [f32; 3])] = &[
+        (RockType::Granite,        "Гранит",              [0.92, 0.48, 0.58]),
+        (RockType::GneissSchist,   "Гнейсы / сланцы",     [0.64, 0.44, 0.74]),
+        (RockType::Andesite,       "Андезит",             [0.88, 0.32, 0.18]),
+        (RockType::FloodBasalt,    "Траппы (базальт)",    [0.28, 0.25, 0.30]),
+        (RockType::Sandstone,      "Песчаник",            [0.88, 0.76, 0.44]),
+        (RockType::ShaleClay,      "Глины / сланцы",      [0.52, 0.62, 0.45]),
+        (RockType::Limestone,      "Известняк",           [0.48, 0.84, 0.82]),
+        (RockType::OceanicBasalt,  "Океанический базальт",[0.16, 0.22, 0.34]),
+        (RockType::PelagicSediment,"Пелагические илы",    [0.26, 0.36, 0.48]),
+    ];
+    let _ = RockType::Granite; // тип держим для документации
+    MapLegend {
+        title: "Литология",
+        entries: rocks.iter().map(|(_, label, rgb)| LegendEntry {
+            rgb: rgb_u8(rgb[0], rgb[1], rgb[2]),
+            label: (*label).into(),
+        }).collect(),
+    }
+}
+
+/// Легенда тектонических плит — показываем представителей каждого типа.
+pub fn plates_legend() -> MapLegend {
+    // Типичный цвет континентальной: HSL(50°, 0.75, 0.40) ≈ жёлто-оранжевый.
+    // Типичный цвет океанической: HSL(220°, 0.55, 0.20) ≈ тёмно-синий.
+    MapLegend {
+        title: "Тектонические плиты",
+        entries: vec![
+            LegendEntry { rgb: rgb_u8(0.70, 0.62, 0.10), label: "Континентальная плита (красный -> жёлто-зелёный)".into() },
+            LegendEntry { rgb: rgb_u8(0.09, 0.16, 0.31), label: "Океаническая плита (бирюзовый -> фиолетовый)".into() },
+            LegendEntry { rgb: rgb_u8(0.10, 0.10, 0.10), label: "Вулкан".into() },
+        ],
+    }
+}
+
+/// Легенда рельефности — ключевые точки шкалы.
+pub fn ruggedness_legend() -> MapLegend {
+    MapLegend {
+        title: "Рельефность",
+        entries: vec![
+            LegendEntry { rgb: rgb_u8(0.18, 0.56, 0.24), label: "Гладкие равнины  (0.00)".into() },
+            LegendEntry { rgb: rgb_u8(0.70, 0.72, 0.18), label: "Холмы и овраги  (0.25)".into() },
+            LegendEntry { rgb: rgb_u8(0.92, 0.30, 0.12), label: "Скалистые хребты  (0.60)".into() },
+            LegendEntry { rgb: rgb_u8(0.87, 0.75, 0.90), label: "Пики и каньоны  (1.00)".into() },
+        ],
+    }
 }

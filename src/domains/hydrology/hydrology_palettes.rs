@@ -1,7 +1,7 @@
 // src/domains/hydrology/hydrology_palettes.rs
 
 use crate::{
-    domains::tectonics::tectonics_data::GeologyLayer,
+    domains::{tectonics::tectonics_data::GeologyLayer, palettes::{rgb_u8, LegendEntry, MapLegend}},
     viewport::{Globe, ViewportViewConfig},
     world::{WorldConfig, topology::WorldTopology},
 };
@@ -322,5 +322,126 @@ pub(super) fn draw_river_flow_gizmos(
         let color = Color::srgb(1.0, 0.70 + 0.15 * s, 0.30 + 0.15 * s).with_alpha(alpha);
 
         gizmos.arrow(world_start, world_end, color).with_tip_length(arrow_len * 2.0);
+    }
+}
+
+// ==== ЛЕГЕНДЫ ГИДРОЛОГИИ ====
+
+pub fn soil_moisture_legend() -> MapLegend {
+    MapLegend {
+        title: "Влажность почвы",
+        entries: vec![
+            LegendEntry { rgb: rgb_u8(0.06, 0.12, 0.24), label: "Океан / вода".into() },
+            LegendEntry { rgb: rgb_u8(0.88, 0.68, 0.38), label: "Сухая  (0.00)".into() },
+            LegendEntry { rgb: rgb_u8(0.78, 0.78, 0.33), label: "Умеренно сухая  (0.25)".into() },
+            LegendEntry { rgb: rgb_u8(0.23, 0.70, 0.45), label: "Умеренно влажная  (0.55)".into() },
+            LegendEntry { rgb: rgb_u8(0.08, 0.35, 0.93), label: "Насыщенная  (1.00)".into() },
+        ],
+    }
+}
+
+pub fn soils_legend() -> MapLegend {
+    MapLegend {
+        title: "Типы почв",
+        entries: vec![
+            LegendEntry { rgb: rgb_u8(0.08, 0.16, 0.30), label: "Океан".into() },
+            LegendEntry { rgb: rgb_u8(0.52, 0.50, 0.48), label: "Лептосоль (каменистая)".into() },
+            LegendEntry { rgb: rgb_u8(0.72, 0.80, 0.84), label: "Гелисоль (мерзлотная)".into() },
+            LegendEntry { rgb: rgb_u8(0.68, 0.64, 0.74), label: "Подзол (хвойные леса)".into() },
+            LegendEntry { rgb: rgb_u8(0.62, 0.46, 0.28), label: "Камбисоль (бурая)".into() },
+            LegendEntry { rgb: rgb_u8(0.22, 0.18, 0.15), label: "Чернозём".into() },
+            LegendEntry { rgb: rgb_u8(0.90, 0.80, 0.55), label: "Аридосоль (пустынная)".into() },
+            LegendEntry { rgb: rgb_u8(0.82, 0.30, 0.18), label: "Латерит (тропическая)".into() },
+            LegendEntry { rgb: rgb_u8(0.38, 0.22, 0.36), label: "Андисоль (вулканическая)".into() },
+            LegendEntry { rgb: rgb_u8(0.30, 0.52, 0.46), label: "Глейсоль (заболоченная)".into() },
+        ],
+    }
+}
+
+pub fn biomes_legend() -> MapLegend {
+    MapLegend {
+        title: "Биомы",
+        entries: vec![
+            // Океан
+            LegendEntry { rgb: rgb_u8(0.05, 0.14, 0.32), label: "Глубокий океан".into() },
+            LegendEntry { rgb: rgb_u8(0.12, 0.34, 0.56), label: "Мелководный океан".into() },
+            LegendEntry { rgb: rgb_u8(0.85, 0.93, 0.98), label: "Морской лёд".into() },
+            // Холодные / горные
+            LegendEntry { rgb: rgb_u8(0.95, 0.98, 1.00), label: "Ледниковый щит".into() },
+            LegendEntry { rgb: rgb_u8(0.52, 0.49, 0.47), label: "Альпийские голые породы".into() },
+            LegendEntry { rgb: rgb_u8(0.62, 0.70, 0.60), label: "Тундра".into() },
+            LegendEntry { rgb: rgb_u8(0.14, 0.36, 0.24), label: "Бореальная тайга".into() },
+            // Умеренные
+            LegendEntry { rgb: rgb_u8(0.24, 0.56, 0.22), label: "Широколиственный лес".into() },
+            LegendEntry { rgb: rgb_u8(0.10, 0.46, 0.32), label: "Умеренный дождевой лес".into() },
+            LegendEntry { rgb: rgb_u8(0.58, 0.56, 0.24), label: "Средиземноморские кустарники".into() },
+            LegendEntry { rgb: rgb_u8(0.66, 0.76, 0.32), label: "Умеренные степи".into() },
+            // Аридные
+            LegendEntry { rgb: rgb_u8(0.76, 0.70, 0.58), label: "Холодная пустыня".into() },
+            LegendEntry { rgb: rgb_u8(0.93, 0.80, 0.48), label: "Жаркая пустыня".into() },
+            LegendEntry { rgb: rgb_u8(0.82, 0.66, 0.42), label: "Ксерофитные кустарники".into() },
+            // Тропические
+            LegendEntry { rgb: rgb_u8(0.76, 0.72, 0.26), label: "Саванна".into() },
+            LegendEntry { rgb: rgb_u8(0.18, 0.62, 0.20), label: "Тропический сезонный лес".into() },
+            LegendEntry { rgb: rgb_u8(0.05, 0.38, 0.12), label: "Тропический дождевой лес".into() },
+            // Азональные
+            LegendEntry { rgb: rgb_u8(0.22, 0.48, 0.44), label: "Водно-болотные угодья".into() },
+            LegendEntry { rgb: rgb_u8(0.20, 0.74, 0.36), label: "Пойма / оазис".into() },
+        ],
+    }
+}
+
+pub fn food_potential_legend() -> MapLegend {
+    // Цвет = смесь пашни/пастбищ/собирательства (а также рыболовства в океане).
+    // Показываем чистые вклады компонентов + подложку.
+    MapLegend {
+        title: "Продовольственный потенциал",
+        entries: vec![
+            LegendEntry { rgb: rgb_u8(0.24, 0.22, 0.20), label: "Бесплодные земли".into() },
+            LegendEntry { rgb: rgb_u8(0.10, 0.90, 0.20), label: "Пашня (изумруд)".into() },
+            LegendEntry { rgb: rgb_u8(0.90, 0.75, 0.20), label: "Пастбища (охра)".into() },
+            LegendEntry { rgb: rgb_u8(0.60, 0.40, 0.85), label: "Собирательство / дичь".into() },
+            LegendEntry { rgb: rgb_u8(0.05, 0.40, 0.90), label: "Рыболовство (шельф)".into() },
+        ],
+    }
+}
+
+pub fn minerals_legend() -> MapLegend {
+    MapLegend {
+        title: "Полезные ископаемые",
+        entries: vec![
+            LegendEntry { rgb: rgb_u8(0.76, 0.48, 0.30), label: "Глина".into() },
+            LegendEntry { rgb: rgb_u8(0.78, 0.80, 0.82), label: "Камень / известняк".into() },
+            LegendEntry { rgb: rgb_u8(0.60, 0.88, 0.92), label: "Кремнезём / кварц".into() },
+            LegendEntry { rgb: rgb_u8(0.96, 0.96, 1.00), label: "Соль".into() },
+            LegendEntry { rgb: rgb_u8(0.90, 0.45, 0.15), label: "Медь".into() },
+            LegendEntry { rgb: rgb_u8(0.55, 0.68, 0.78), label: "Олово".into() },
+            LegendEntry { rgb: rgb_u8(0.78, 0.18, 0.16), label: "Железо".into() },
+            LegendEntry { rgb: rgb_u8(1.00, 0.86, 0.12), label: "Драгоценные металлы".into() },
+            LegendEntry { rgb: rgb_u8(0.92, 0.95, 0.18), label: "Сера / селитра".into() },
+            LegendEntry { rgb: rgb_u8(0.12, 0.12, 0.14), label: "Уголь".into() },
+            LegendEntry { rgb: rgb_u8(0.52, 0.12, 0.68), label: "Углеводороды".into() },
+            LegendEntry { rgb: rgb_u8(0.94, 0.36, 0.32), label: "Бокситы".into() },
+            LegendEntry { rgb: rgb_u8(0.24, 0.52, 0.92), label: "Легирующие металлы".into() },
+            LegendEntry { rgb: rgb_u8(0.18, 0.98, 0.28), label: "Уран".into() },
+            LegendEntry { rgb: rgb_u8(0.98, 0.18, 0.75), label: "РЗМ / литий".into() },
+        ],
+    }
+}
+
+pub fn bio_resources_legend() -> MapLegend {
+    MapLegend {
+        title: "Биоресурсы",
+        entries: vec![
+            LegendEntry { rgb: rgb_u8(0.08, 0.48, 0.22), label: "Корабельный лес".into() },
+            LegendEntry { rgb: rgb_u8(0.36, 0.58, 0.28), label: "Строительный лес / топливо".into() },
+            LegendEntry { rgb: rgb_u8(0.94, 0.94, 0.86), label: "Волокнистые культуры".into() },
+            LegendEntry { rgb: rgb_u8(0.16, 0.78, 0.72), label: "Смолы / каучук".into() },
+            LegendEntry { rgb: rgb_u8(0.88, 0.20, 0.52), label: "Пряности / чай / кофе".into() },
+            LegendEntry { rgb: rgb_u8(0.82, 0.48, 0.16), label: "Лошади".into() },
+            LegendEntry { rgb: rgb_u8(0.94, 0.80, 0.36), label: "Верблюды".into() },
+            LegendEntry { rgb: rgb_u8(0.56, 0.46, 0.68), label: "Слоны / вьючные".into() },
+            LegendEntry { rgb: rgb_u8(0.68, 0.86, 0.98), label: "Пушнина / кость".into() },
+        ],
     }
 }

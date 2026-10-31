@@ -42,7 +42,25 @@ const LAYERS: &[(MapOverlay, &str)] = &[
     (MapOverlay::BioResources, "Биоресурсы"),
 ];
 
-/// Топ-левел оркестратор UI.
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct ShellLayout {
+    pub top:    egui::Rect,
+    pub bottom: egui::Rect,
+    pub left:   egui::Rect,
+    pub right:  egui::Rect,
+}
+
+impl Default for ShellLayout {
+    fn default() -> Self {
+        Self {
+            top:    egui::Rect::ZERO,
+            bottom: egui::Rect::ZERO,
+            left:   egui::Rect::ZERO,
+            right:  egui::Rect::ZERO,
+        }
+    }
+}
+
 pub fn render_ui_shell(world: &mut World) -> Result {
     let mut contexts = world.query::<&mut EguiContext>();
     let Ok(mut egui_ctx) = contexts.single_mut(world) else {
@@ -51,6 +69,8 @@ pub fn render_ui_shell(world: &mut World) -> Result {
     let ctx = egui_ctx.get_mut().clone();
     let rect = ctx.content_rect();
 
+    let mut layout = ShellLayout::default();
+
     egui::Area::new(egui::Id::new("root_ui_shell"))
         .fixed_pos(rect.min)
         .order(egui::Order::Background)
@@ -58,24 +78,26 @@ pub fn render_ui_shell(world: &mut World) -> Result {
             ui.set_min_size(rect.size());
             ui.set_max_size(rect.size());
 
-            draw_top_panel(ui, world);
-            draw_bottom_panel(ui, world);
-            draw_left_panel(ui, world);
-            draw_right_panel(ui, world);
+            layout.top    = draw_top_panel(ui, world);
+            layout.bottom = draw_bottom_panel(ui, world);
+            layout.left   = draw_left_panel(ui, world);
+            layout.right  = draw_right_panel(ui, world);
         });
 
-    // Модальные окна сохранения/загрузки и диалог догенерации.
-    let _ = world.run_system_cached_with(draw_save_load_windows_system, ctx);
+    // Публикуем реальные размеры панелей на этот кадр.
+    world.insert_resource(layout);
 
+    let _ = world.run_system_cached_with(draw_save_load_windows_system, ctx);
     Ok(())
 }
-
 // === 0. ВЕРХНЯЯ СИСТЕМНАЯ ПАНЕЛЬ (Classic Top Bar) ===
 
-fn draw_top_panel(ui: &mut egui::Ui, world: &mut World) {
+fn draw_top_panel(ui: &mut egui::Ui, world: &mut World) -> egui::Rect {
+    let mut panel_rect = egui::Rect::ZERO;
     egui::Panel::top("top_panel")
         .exact_size(32.0)
         .show(ui, |ui| {
+            panel_rect = ui.max_rect();
             ui.horizontal_centered(|ui| {
                 ui.strong("🌍 PlanetSim");
                 ui.separator();
@@ -136,6 +158,7 @@ fn draw_top_panel(ui: &mut egui::Ui, world: &mut World) {
                 });
             });
         });
+    panel_rect
 }
 
 fn draw_status_text(
@@ -173,10 +196,12 @@ fn draw_status_text(
 
 // === 1. НИЖНЯЯ ПАНЕЛЬ (Вкладки доменов) ===
 
-fn draw_bottom_panel(ui: &mut egui::Ui, world: &mut World) {
+fn draw_bottom_panel(ui: &mut egui::Ui, world: &mut World) -> egui::Rect {
+    let mut panel_rect = egui::Rect::ZERO;
     egui::Panel::bottom("bottom_panel")
         .exact_size(40.0)
         .show(ui, |ui| {
+            panel_rect = ui.max_rect();
             let mut active_tab = world.resource_mut::<ActiveTab>();
             ui.horizontal_centered(|ui| {
                 ui.selectable_value(&mut *active_tab, ActiveTab::World, "Планета");
@@ -186,14 +211,17 @@ fn draw_bottom_panel(ui: &mut egui::Ui, world: &mut World) {
                 ui.selectable_value(&mut *active_tab, ActiveTab::Civilization, "Цивилизации");
             });
         });
+    panel_rect
 }
 
 // === 2. ЛЕВАЯ ПАНЕЛЬ (Режимы отображения) ===
 
-fn draw_left_panel(ui: &mut egui::Ui, world: &mut World) {
+fn draw_left_panel(ui: &mut egui::Ui, world: &mut World) -> egui::Rect {
+    let mut panel_rect = egui::Rect::ZERO;
     egui::Panel::left("left_panel")
         .default_size(200.0)
         .show(ui, |ui| {
+            panel_rect = ui.max_rect();
             ui.heading("Отображение");
             ui.separator();
             ui.label("Слои карты:");
@@ -239,16 +267,19 @@ fn draw_left_panel(ui: &mut egui::Ui, world: &mut World) {
                 }
             }
         });
+    panel_rect
 }
 
 // === 3. ПРАВАЯ ПАНЕЛЬ (делегируем отрисовку доменам) ===
 
-fn draw_right_panel(ui: &mut egui::Ui, world: &mut World) {
+fn draw_right_panel(ui: &mut egui::Ui, world: &mut World) -> egui::Rect {
+    let mut panel_rect = egui::Rect::ZERO;
     let current_tab = *world.resource::<ActiveTab>();
 
     egui::Panel::right("right_panel")
         .default_size(300.0)
         .show(ui, |ui| {
+            panel_rect = ui.max_rect();
             egui::ScrollArea::vertical().show(ui, |ui| match current_tab {
                 ActiveTab::Tectonics => {
                     let _ = world.run_system_cached_with(draw_tectonics_tab_system, ui);
@@ -265,4 +296,5 @@ fn draw_right_panel(ui: &mut egui::Ui, world: &mut World) {
                 ActiveTab::World => draw_world_tab(ui, world),
             });
         });
+    panel_rect
 }
